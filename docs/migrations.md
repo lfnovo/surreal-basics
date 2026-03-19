@@ -50,6 +50,18 @@ sbl-migrate up
 sbl-migrate up --to 2
 ```
 
+### Dry-run (validate without applying)
+
+```bash
+# Validate all pending migrations without applying
+sbl-migrate up --dry-run
+
+# Validate up to a specific version
+sbl-migrate up --to 2 --dry-run
+```
+
+Each migration is wrapped in `BEGIN TRANSACTION; ... CANCEL TRANSACTION;`, so SurrealDB parses and validates the SQL but rolls back all changes. If a migration has invalid syntax or references non-existent fields/tables, the dry-run will catch it.
+
 ### Rollback
 
 ```bash
@@ -93,6 +105,9 @@ for m in applied:
 
 # Apply up to a specific version
 runner.run_up(target_version=3)
+
+# Dry-run: validate without applying
+runner.run_up(dry_run=True)
 
 # Rollback last migration
 runner.run_down()

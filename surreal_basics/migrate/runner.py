@@ -54,14 +54,20 @@ class MigrationRunner:
         applied_versions = {r.version for r in self.get_applied_versions()}
         return [m for m in all_migrations if m.version not in applied_versions]
 
-    def run_up(self, target_version: int | None = None) -> list[MigrationFile]:
+    def run_up(
+        self,
+        target_version: int | None = None,
+        dry_run: bool = False,
+    ) -> list[MigrationFile]:
         """Run all pending migrations, optionally up to a target version.
 
         Args:
             target_version: If set, only run migrations up to this version.
+            dry_run: If True, validate migrations inside a transaction that
+                gets cancelled, so nothing is persisted.
 
         Returns:
-            List of migrations that were applied.
+            List of migrations that were applied (or validated in dry-run).
 
         Raises:
             SurrealDBMigrationError: If a migration fails.
@@ -75,22 +81,33 @@ class MigrationRunner:
         applied = []
         for migration in pending:
             sql = parse_sql_file(migration.up_path)
-            try:
-                repo_query_sync(sql)
-            except Exception as e:
-                raise SurrealDBMigrationError(
-                    f"Migration {migration.version:03d}_{migration.name} failed: {e}"
-                ) from e
+            if dry_run:
+                dry_sql = f"BEGIN TRANSACTION;\n{sql}\nCANCEL TRANSACTION;"
+                try:
+                    repo_query_sync(dry_sql)
+                except Exception as e:
+                    raise SurrealDBMigrationError(
+                        f"Migration {migration.version:03d}_{migration.name} "
+                        f"failed validation: {e}"
+                    ) from e
+            else:
+                try:
+                    repo_query_sync(sql)
+                except Exception as e:
+                    raise SurrealDBMigrationError(
+                        f"Migration {migration.version:03d}_{migration.name} "
+                        f"failed: {e}"
+                    ) from e
 
-            repo_query_sync(
-                f"CREATE {_TRACKING_TABLE} CONTENT $data",
-                {
-                    "data": {
-                        "version": migration.version,
-                        "name": migration.name,
-                    }
-                },
-            )
+                repo_query_sync(
+                    f"CREATE {_TRACKING_TABLE} CONTENT $data",
+                    {
+                        "data": {
+                            "version": migration.version,
+                            "name": migration.name,
+                        }
+                    },
+                )
             applied.append(migration)
 
         return applied

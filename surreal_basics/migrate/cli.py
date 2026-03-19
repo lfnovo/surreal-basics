@@ -17,16 +17,22 @@ def cmd_up(args: argparse.Namespace) -> None:
     """Run pending migrations."""
     runner = MigrationRunner(args.dir)
     target = args.to if hasattr(args, "to") and args.to else None
+    dry_run = args.dry_run
 
-    applied = runner.run_up(target_version=target)
+    applied = runner.run_up(target_version=target, dry_run=dry_run)
 
     if not applied:
         print("No pending migrations.")
         return
 
+    label = "VALID" if dry_run else "APPLIED"
     for m in applied:
-        print(f"  [APPLIED] {m.version:03d}_{m.name}")
-    print(f"\n{len(applied)} migration(s) applied.")
+        print(f"  [{label}] {m.version:03d}_{m.name}")
+
+    if dry_run:
+        print(f"\n{len(applied)} migration(s) validated (dry-run, nothing applied).")
+    else:
+        print(f"\n{len(applied)} migration(s) applied.")
 
 
 def cmd_down(args: argparse.Namespace) -> None:
@@ -88,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
     up_parser = subparsers.add_parser("up", help="Run pending migrations")
     up_parser.add_argument(
         "--to", type=int, default=None, help="Run migrations up to this version"
+    )
+    up_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Validate migrations without applying (uses BEGIN/CANCEL TRANSACTION)",
     )
     up_parser.add_argument(
         "--dir", default=_get_default_dir(), help="Migrations directory"

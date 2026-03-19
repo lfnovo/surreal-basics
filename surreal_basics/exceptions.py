@@ -23,3 +23,9 @@ class SurrealDBConnectionError(SurrealDBError):
     """Connection-related error."""
 
     pass
+
+
+class SurrealDBMigrationError(SurrealDBError):
+    """Migration-related error."""
+
+    pass

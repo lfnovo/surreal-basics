@@ -1,6 +1,6 @@
 [project]
 name = "surreal-basics"
-version = "0.1.2"
+version = "0.2.0"
 description = "Simple and transparent SurrealDB connection management for Python"
 readme = "README.md"
 license = "MIT"
@@ -39,6 +39,9 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
 ]
+
+[project.scripts]
+sbl-migrate = "surreal_basics.migrate.cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -131,11 +131,48 @@ All async functions have sync equivalents with `_sync` suffix:
 | `SURREAL_MODE` | ws | Mode: "ws" or "http" |
 | `SURREAL_PERSISTENT` | true | Persistent connection |
 
+## Migrations
+
+`surreal-basics` includes a built-in migration system for managing SurrealDB schema changes.
+
+### Quick start
+
+```bash
+# Create a migration
+sbl-migrate create create_users --dir ./migrations
+
+# Check status
+sbl-migrate status --dir ./migrations
+
+# Apply pending migrations
+sbl-migrate up --dir ./migrations
+
+# Rollback last migration
+sbl-migrate down --dir ./migrations
+```
+
+### Programmatic usage
+
+```python
+from surreal_basics.migrate import MigrationRunner, AsyncMigrationRunner
+
+# Sync
+runner = MigrationRunner("./migrations")
+runner.run_up()
+
+# Async
+runner = AsyncMigrationRunner("./migrations")
+await runner.run_up()
+```
+
+Migration files use the naming convention `NNN_name.surrealql` with optional `NNN_name_down.surrealql` for rollbacks. See [docs/migrations.md](docs/migrations.md) for full documentation.
+
 ## Error Handling
 
 ```python
 from surreal_basics import (
     SurrealDBConnectionError,  # Connection failed
+    SurrealDBMigrationError,   # Migration failed
     SurrealDBQueryError,       # Query error (no retry)
     SurrealDBTransientError,   # Transient error (automatic retry)
 )
@@ -153,6 +190,7 @@ except SurrealDBQueryError as e:
 See [docs/](docs/) for complete documentation including:
 - [Configuration](docs/configuration.md) - Environment variables, init() and connection modes
 - [API Reference](docs/api-reference.md) - Complete documentation of all functions
+- [Migrations](docs/migrations.md) - Schema migration system
 
 ## Development
 

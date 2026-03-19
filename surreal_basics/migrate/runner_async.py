@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ..exceptions import SurrealDBMigrationError
+from ..exceptions import SurrealDBMigrationError, SurrealDBQueryError
 from ..repo import repo_query
 from .discovery import discover_migrations, parse_sql_file
 from .models import MigrationFile, MigrationRecord
@@ -85,6 +85,14 @@ class AsyncMigrationRunner:
                 dry_sql = f"BEGIN TRANSACTION;\n{sql}\nCANCEL TRANSACTION;"
                 try:
                     await repo_query(dry_sql)
+                except SurrealDBQueryError as e:
+                    if "cancelled transaction" in str(e).lower():
+                        pass  # Expected: CANCEL TRANSACTION worked
+                    else:
+                        raise SurrealDBMigrationError(
+                            f"Migration {migration.version:03d}_{migration.name} "
+                            f"failed validation: {e}"
+                        ) from e
                 except Exception as e:
                     raise SurrealDBMigrationError(
                         f"Migration {migration.version:03d}_{migration.name} "

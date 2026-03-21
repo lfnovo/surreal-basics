@@ -52,6 +52,7 @@ from .utils import ensure_record_id, parse_record_ids
 from .exceptions import (
     SurrealDBConnectionError,
     SurrealDBError,
+    SurrealDBMigrationError,
     SurrealDBQueryError,
     SurrealDBTransientError,
 )
@@ -134,6 +135,7 @@ __all__ = [
     "SurrealDBTransientError",
     "SurrealDBQueryError",
     "SurrealDBConnectionError",
+    "SurrealDBMigrationError",
     # Connection management
     "ConnectionManager",
     "get_async_connection",

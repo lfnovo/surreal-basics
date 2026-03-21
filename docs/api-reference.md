@@ -284,6 +284,7 @@ rid = ensure_record_id(rid)  # Returns same RecordID
 |-----------|-------------|-------|
 | `SurrealDBError` | Base for all exceptions | - |
 | `SurrealDBConnectionError` | Failed to connect to SurrealDB | No |
+| `SurrealDBMigrationError` | Migration failed to apply or rollback | No |
 | `SurrealDBQueryError` | Query error (syntax, etc) | No |
 | `SurrealDBTransientError` | Transient error (lock conflict) | Yes (3x) |
 

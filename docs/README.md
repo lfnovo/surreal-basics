@@ -4,6 +4,7 @@
 
 - [Configuration](configuration.md) - Environment variables, init() and connection modes
 - [API Reference](api-reference.md) - Complete documentation of all functions
+- [Migrations](migrations.md) - Schema migration system
 
 ## Main Features
 
@@ -27,6 +28,13 @@
 - `repo_query` / `repo_query_sync` - Custom SurrealQL queries
 - `repo_insert` / `repo_insert_sync` - Bulk insert
 - `repo_relate` / `repo_relate_sync` - Create relationships between records
+
+### Migrations
+
+- `MigrationRunner` / `AsyncMigrationRunner` - Run and rollback migrations programmatically
+- `discover_migrations()` - Auto-discover `.surrealql` migration files
+- `scaffold_migration()` - Create new migration file pairs
+- `sbl-migrate` CLI - Command-line interface for migrations
 
 ### Utilities
 

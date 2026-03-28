@@ -100,6 +100,18 @@ def cleanup_table_sync():
         pass
 
 
+@pytest.fixture
+def surreal_config_memory():
+    """Configure surreal_basics for in-memory testing."""
+    init(
+        namespace=TEST_NS,
+        database=TEST_DB,
+        mode="memory",
+    )
+    yield
+    reset_connections()
+
+
 @pytest_asyncio.fixture
 async def async_cleanup():
     """Async cleanup for connections."""

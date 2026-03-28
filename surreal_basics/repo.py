@@ -204,9 +204,15 @@ async def repo_select(
         Single record dict or list of records
     """
     # Convert string ID to RecordID if it contains a colon
+    is_single = isinstance(table_or_id, RecordID) or (
+        isinstance(table_or_id, str) and ":" in table_or_id
+    )
     if isinstance(table_or_id, str) and ":" in table_or_id:
         table_or_id = ensure_record_id(table_or_id)
 
     async with get_async_connection() as conn:
         result = await conn.select(table_or_id)
-        return parse_record_ids(result)
+        parsed = parse_record_ids(result)
+        if is_single and isinstance(parsed, list) and len(parsed) == 1:
+            return parsed[0]
+        return parsed

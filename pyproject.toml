@@ -4,7 +4,7 @@ version = "0.2.0"
 description = "Simple and transparent SurrealDB connection management for Python"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Luis Novo", email = "lfnovo@gmail.com" },
 ]
@@ -14,7 +14,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -24,7 +23,7 @@ classifiers = [
     "Framework :: AsyncIO",
 ]
 dependencies = [
-    "surrealdb>=1.0.6",
+    "surrealdb>=1.0.7",
     "tenacity>=8.0.0",
 ]
 
@@ -42,6 +41,9 @@ dev = [
 
 [project.scripts]
 sbl-migrate = "surreal_basics.migrate.cli:main"
+
+[tool.uv]
+constraint-dependencies = ["pydantic-core<2.44"]
 
 [build-system]
 requires = ["hatchling"]

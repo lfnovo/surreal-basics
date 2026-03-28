@@ -4,7 +4,7 @@ import os
 import pytest
 
 from surreal_basics import get_config, get_mode, init, set_mode
-from surreal_basics.config import SurrealConfig
+from surreal_basics.config import SurrealConfig, ConnectionMode
 
 
 class TestSurrealConfig:
@@ -32,6 +32,26 @@ class TestSurrealConfig:
         config.host = "localhost"
         config.port = 8000
         assert config.get_url() == "http://localhost:8000/rpc"
+
+    def test_get_url_memory(self, reset_config):
+        """Test memory URL generation."""
+        config = SurrealConfig()
+        config.mode = "memory"
+        assert config.get_url() == "mem://"
+
+    def test_get_url_embedded(self, reset_config):
+        """Test embedded URL generation with path."""
+        config = SurrealConfig()
+        config.mode = "embedded"
+        config.path = "/tmp/test.db"
+        assert config.get_url() == "file:///tmp/test.db"
+
+    def test_get_url_embedded_default_path(self, reset_config):
+        """Test embedded URL generation with default path."""
+        config = SurrealConfig()
+        config.mode = "embedded"
+        config.path = None
+        assert config.get_url() == "file://./surreal.db"
 
 
 class TestConfigFunctions:
@@ -80,6 +100,31 @@ class TestConfigFunctions:
         assert get_config().persistent is True
         init(persistent=False)
         assert get_config().persistent is False
+
+    def test_init_memory_mode(self, reset_config):
+        """Test memory mode via init."""
+        init(mode="memory")
+        assert get_mode() == "memory"
+        assert get_config().get_url() == "mem://"
+
+    def test_init_embedded_mode(self, reset_config):
+        """Test embedded mode via init."""
+        init(mode="embedded", path="/tmp/my.db")
+        assert get_mode() == "embedded"
+        assert get_config().path == "/tmp/my.db"
+        assert get_config().get_url() == "file:///tmp/my.db"
+
+    def test_set_mode_memory(self, reset_config):
+        """Test mode change to memory via set_mode."""
+        init()
+        set_mode("memory")
+        assert get_mode() == "memory"
+
+    def test_set_mode_embedded(self, reset_config):
+        """Test mode change to embedded via set_mode."""
+        init()
+        set_mode("embedded")
+        assert get_mode() == "embedded"
 
 
 class TestEnvironmentVariableAliases:
@@ -158,6 +203,45 @@ class TestEnvironmentVariableAliases:
         monkeypatch.setenv("SURREAL_DATABASE", "db2")
         config = SurrealConfig()
         assert config.database == "db1"
+
+    def test_surreal_url_memory(self, reset_config, monkeypatch):
+        """Test SURREAL_URL=memory:// detection."""
+        monkeypatch.setenv("SURREAL_URL", "memory://")
+        config = SurrealConfig()
+        assert config.mode == "memory"
+        assert config.get_url() == "mem://"
+
+    def test_surreal_url_mem_scheme(self, reset_config, monkeypatch):
+        """Test SURREAL_URL=mem:// detection."""
+        monkeypatch.setenv("SURREAL_URL", "mem://")
+        config = SurrealConfig()
+        assert config.mode == "memory"
+        assert config.get_url() == "mem://"
+
+    def test_surreal_url_file(self, reset_config, monkeypatch):
+        """Test SURREAL_URL with file:// scheme."""
+        monkeypatch.setenv("SURREAL_URL", "file:///data/myapp.db")
+        config = SurrealConfig()
+        assert config.mode == "embedded"
+        assert config.path == "/data/myapp.db"
+        assert config.get_url() == "file:///data/myapp.db"
+
+    def test_surreal_mode_env_memory(self, reset_config, monkeypatch):
+        """Test SURREAL_MODE=memory env var."""
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        monkeypatch.setenv("SURREAL_MODE", "memory")
+        config = SurrealConfig()
+        assert config.mode == "memory"
+
+    def test_surreal_mode_env_embedded(self, reset_config, monkeypatch):
+        """Test SURREAL_MODE=embedded with SURREAL_PATH."""
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        monkeypatch.setenv("SURREAL_MODE", "embedded")
+        monkeypatch.setenv("SURREAL_PATH", "/tmp/embedded.db")
+        config = SurrealConfig()
+        assert config.mode == "embedded"
+        assert config.path == "/tmp/embedded.db"
+        assert config.get_url() == "file:///tmp/embedded.db"
 
     def test_full_alternative_config(self, reset_config, monkeypatch):
         """Test all alternative env vars together."""

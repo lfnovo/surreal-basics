@@ -7,6 +7,10 @@ Usage:
     # Configure (optional - env vars work automatically)
     surreal_basics.init(host="localhost", port=8000, mode="ws")
 
+    # Or use embedded/memory mode (no server required)
+    surreal_basics.init(mode="memory")
+    surreal_basics.init(mode="embedded", path="~/.myapp/data.db")
+
     # Or just change mode
     surreal_basics.mode = "http"
 

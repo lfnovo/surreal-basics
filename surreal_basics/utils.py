@@ -12,7 +12,7 @@ def parse_record_ids(obj: Any) -> Any:
     elif isinstance(obj, list):
         return [parse_record_ids(item) for item in obj]
     elif isinstance(obj, RecordID):
-        return str(obj)
+        return f"{obj.table_name}:{obj.id}"
     return obj
 
 

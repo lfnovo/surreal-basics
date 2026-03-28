@@ -86,7 +86,8 @@ class TestEnsureRecordId:
 
             result = ensure_record_id("user:123")
             assert isinstance(result, RecordID)
-            assert str(result) == "user:123"
+            assert result.table_name == "user"
+            assert result.id == "123"
         except ImportError:
             pytest.skip("surrealdb SDK not installed")
 

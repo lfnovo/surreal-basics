@@ -15,6 +15,7 @@ class ConnectionManager:
 
     - WebSocket: Always uses persistent singleton connection (better performance)
     - HTTP: Configurable - persistent (default) or per-operation
+    - Memory/Embedded: Always uses persistent singleton connection
 
     This design allows easy extension to connection pooling in the future.
     """
@@ -23,10 +24,14 @@ class ConnectionManager:
     _ws_async_connection: Optional[AsyncSurreal] = None
     _http_sync_connection: Optional[Surreal] = None
     _http_async_connection: Optional[AsyncSurreal] = None
+    _embedded_sync_connection: Optional[Surreal] = None
+    _embedded_async_connection: Optional[AsyncSurreal] = None
     _ws_sync_connected: bool = False
     _ws_async_connected: bool = False
     _http_sync_connected: bool = False
     _http_async_connected: bool = False
+    _embedded_sync_connected: bool = False
+    _embedded_async_connected: bool = False
 
     @classmethod
     def _get_credentials(cls) -> dict:
@@ -68,6 +73,18 @@ class ConnectionManager:
             cls._http_async_connection = None
             cls._http_async_connected = False
 
+        if cls._embedded_sync_connection is not None:
+            try:
+                cls._embedded_sync_connection.close()
+            except Exception:
+                pass
+            cls._embedded_sync_connection = None
+            cls._embedded_sync_connected = False
+
+        if cls._embedded_async_connection is not None:
+            cls._embedded_async_connection = None
+            cls._embedded_async_connected = False
+
     @classmethod
     async def reset_async(cls) -> None:
         """Reset async connections properly."""
@@ -87,6 +104,14 @@ class ConnectionManager:
             cls._http_async_connection = None
             cls._http_async_connected = False
 
+        if cls._embedded_async_connection is not None:
+            try:
+                await cls._embedded_async_connection.close()
+            except Exception:
+                pass
+            cls._embedded_async_connection = None
+            cls._embedded_async_connected = False
+
     @classmethod
     @asynccontextmanager
     async def get_async_connection(cls) -> AsyncGenerator[AsyncSurreal, None]:
@@ -95,10 +120,26 @@ class ConnectionManager:
 
         For WebSocket mode: Always uses persistent singleton connection.
         For HTTP mode: Persistent if config.persistent=True, otherwise new connection per call.
+        For Memory/Embedded mode: Always uses persistent singleton connection.
         """
         config = get_config()
 
-        if config.mode == "ws":
+        if config.mode in ("memory", "embedded"):
+            # Memory/Embedded: always use persistent connection (no signin needed)
+            if cls._embedded_async_connection is None or not cls._embedded_async_connected:
+                try:
+                    cls._embedded_async_connection = AsyncSurreal(config.get_url())
+                    ns, db = cls._get_ns_db()
+                    await cls._embedded_async_connection.use(ns, db)
+                    cls._embedded_async_connected = True
+                except Exception as e:
+                    cls._embedded_async_connection = None
+                    cls._embedded_async_connected = False
+                    raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
+
+            yield cls._embedded_async_connection
+
+        elif config.mode == "ws":
             # WebSocket: always use persistent connection
             if cls._ws_async_connection is None or not cls._ws_async_connected:
                 try:
@@ -149,10 +190,26 @@ class ConnectionManager:
 
         For WebSocket mode: Always uses persistent singleton connection.
         For HTTP mode: Persistent if config.persistent=True, otherwise new connection per call.
+        For Memory/Embedded mode: Always uses persistent singleton connection.
         """
         config = get_config()
 
-        if config.mode == "ws":
+        if config.mode in ("memory", "embedded"):
+            # Memory/Embedded: always use persistent connection (no signin needed)
+            if cls._embedded_sync_connection is None or not cls._embedded_sync_connected:
+                try:
+                    cls._embedded_sync_connection = Surreal(config.get_url())
+                    ns, db = cls._get_ns_db()
+                    cls._embedded_sync_connection.use(ns, db)
+                    cls._embedded_sync_connected = True
+                except Exception as e:
+                    cls._embedded_sync_connection = None
+                    cls._embedded_sync_connected = False
+                    raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
+
+            yield cls._embedded_sync_connection
+
+        elif config.mode == "ws":
             # WebSocket: always use persistent connection
             if cls._ws_sync_connection is None or not cls._ws_sync_connected:
                 try:

@@ -83,6 +83,20 @@ def _get_tls() -> bool:
     return False
 
 
+def _port_is_implicit() -> bool:
+    """True when no explicit port was provided via SURREAL_PORT or SURREAL_URL."""
+    if os.getenv("SURREAL_PORT"):
+        return False
+    parsed = _parse_surreal_url()
+    if parsed and parsed.get("port") is not None:
+        return False
+    return True
+
+
+def _default_port_for(tls: bool) -> int:
+    return 443 if tls else 8000
+
+
 def _get_port() -> int:
     """Get port from SURREAL_PORT, SURREAL_URL, or scheme-aware default.
 
@@ -99,7 +113,7 @@ def _get_port() -> int:
     if parsed and parsed.get("port") is not None:
         return parsed["port"]
 
-    return 443 if _get_tls() else 8000
+    return _default_port_for(_get_tls())
 
 
 def _get_mode() -> ConnectionMode:
@@ -218,6 +232,11 @@ def init(
         config.path = path
     if tls is not None:
         config.tls = tls
+        # Recompute the implicit port default when the user flips TLS without
+        # specifying a port — e.g. init(tls=True) on a fresh config should
+        # yield :443, not the non-TLS default of :8000.
+        if port is None and _port_is_implicit():
+            config.port = _default_port_for(tls)
 
 
 def set_mode(mode: ConnectionMode) -> None:

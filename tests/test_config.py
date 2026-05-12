@@ -247,6 +247,52 @@ class TestEnvironmentVariableAliases:
         assert cfg.tls is True
         assert cfg.get_url() == "wss://example.com:443/rpc"
 
+    def test_init_tls_recomputes_default_port(self, reset_config, monkeypatch):
+        """init(tls=True) without an explicit port should yield :443, not :8000."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        from surreal_basics import get_config, init
+
+        init(mode="ws", host="example.com", tls=True)
+        cfg = get_config()
+        assert cfg.port == 443
+        assert cfg.get_url() == "wss://example.com:443/rpc"
+
+    def test_init_tls_false_recomputes_default_port(
+        self, reset_config, monkeypatch
+    ):
+        """init(tls=False) on a config that had implicit :443 should snap back to :8000."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "wss://example.com")  # implicit :443
+        from surreal_basics import get_config, init
+
+        init(tls=False)
+        cfg = get_config()
+        assert cfg.port == 8000
+        assert cfg.get_url() == "ws://example.com:8000/rpc"
+
+    def test_init_tls_preserves_explicit_port_env(self, reset_config, monkeypatch):
+        """SURREAL_PORT should still pin the port even when init(tls=True) is called."""
+        monkeypatch.setenv("SURREAL_PORT", "8018")
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        from surreal_basics import get_config, init
+
+        init(mode="ws", host="example.com", tls=True)
+        cfg = get_config()
+        assert cfg.port == 8018
+        assert cfg.get_url() == "wss://example.com:8018/rpc"
+
+    def test_init_tls_preserves_explicit_port_arg(self, reset_config, monkeypatch):
+        """An explicit port= argument should win over the implicit-default recompute."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        from surreal_basics import get_config, init
+
+        init(mode="ws", host="example.com", port=9000, tls=True)
+        cfg = get_config()
+        assert cfg.port == 9000
+        assert cfg.get_url() == "wss://example.com:9000/rpc"
+
     def test_surreal_password_alias(self, reset_config, monkeypatch):
         """Test SURREAL_PASSWORD as alias for SURREAL_PASS."""
         monkeypatch.setenv("SURREAL_PASSWORD", "mypassword")

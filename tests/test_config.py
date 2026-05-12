@@ -153,6 +153,8 @@ class TestEnvironmentVariableAliases:
         assert config.host == "secure.example.com"
         assert config.port == 443
         assert config.mode == "ws"
+        assert config.tls is True
+        assert config.get_url() == "wss://secure.example.com:443/rpc"
 
     def test_surreal_url_https(self, reset_config, monkeypatch):
         """Test SURREAL_URL parsing for HTTPS."""
@@ -161,6 +163,168 @@ class TestEnvironmentVariableAliases:
         assert config.host == "secure.example.com"
         assert config.port == 443
         assert config.mode == "http"
+        assert config.tls is True
+        assert config.get_url() == "https://secure.example.com:443/rpc"
+
+    def test_surreal_url_wss_no_explicit_port_defaults_to_443(
+        self, reset_config, monkeypatch
+    ):
+        """wss:// without explicit port should default to 443, not 8000."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "wss://tenant.aws-use1.surreal.cloud")
+        config = SurrealConfig()
+        assert config.host == "tenant.aws-use1.surreal.cloud"
+        assert config.port == 443
+        assert config.mode == "ws"
+        assert config.tls is True
+        assert (
+            config.get_url() == "wss://tenant.aws-use1.surreal.cloud:443/rpc"
+        )
+
+    def test_surreal_url_https_no_explicit_port_defaults_to_443(
+        self, reset_config, monkeypatch
+    ):
+        """https:// without explicit port should default to 443."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "https://tenant.aws-use1.surreal.cloud")
+        config = SurrealConfig()
+        assert config.port == 443
+        assert config.tls is True
+        assert (
+            config.get_url()
+            == "https://tenant.aws-use1.surreal.cloud:443/rpc"
+        )
+
+    def test_surreal_url_ws_no_explicit_port_defaults_to_8000(
+        self, reset_config, monkeypatch
+    ):
+        """Non-TLS ws:// without explicit port should keep 8000 default."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "ws://localhost")
+        config = SurrealConfig()
+        assert config.port == 8000
+        assert config.tls is False
+        assert config.get_url() == "ws://localhost:8000/rpc"
+
+    def test_surreal_url_scheme_wins_over_port_env(self, reset_config, monkeypatch):
+        """SURREAL_PORT from a sourced .env must not leak into a SURREAL_URL=wss://... run."""
+        monkeypatch.setenv("SURREAL_PORT", "8018")  # local dev leftover
+        monkeypatch.setenv("SURREAL_URL", "wss://tenant.surreal.cloud")
+        config = SurrealConfig()
+        assert config.port == 443
+        assert config.tls is True
+        assert config.get_url() == "wss://tenant.surreal.cloud:443/rpc"
+
+    def test_surreal_url_explicit_port_wins_over_port_env(
+        self, reset_config, monkeypatch
+    ):
+        """An explicit URL port wins over SURREAL_PORT — URL is authoritative."""
+        monkeypatch.setenv("SURREAL_PORT", "8018")
+        monkeypatch.setenv("SURREAL_URL", "wss://tenant.surreal.cloud:9000")
+        config = SurrealConfig()
+        assert config.port == 9000
+        assert config.get_url() == "wss://tenant.surreal.cloud:9000/rpc"
+
+    def test_surreal_port_still_wins_when_no_url(self, reset_config, monkeypatch):
+        """Without SURREAL_URL, SURREAL_PORT must still configure the port (local dev path)."""
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        monkeypatch.setenv("SURREAL_HOST", "localhost")
+        monkeypatch.setenv("SURREAL_PORT", "8018")
+        config = SurrealConfig()
+        assert config.port == 8018
+        assert config.get_url() == "ws://localhost:8018/rpc"
+
+    def test_surreal_tls_env_overrides_scheme(self, reset_config, monkeypatch):
+        """SURREAL_TLS=true should upgrade a ws:// URL to wss://."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "ws://example.com:8443")
+        monkeypatch.setenv("SURREAL_TLS", "true")
+        config = SurrealConfig()
+        assert config.tls is True
+        assert config.mode == "ws"
+        assert config.get_url() == "wss://example.com:8443/rpc"
+
+    def test_surreal_tls_env_false_downgrades(self, reset_config, monkeypatch):
+        """SURREAL_TLS=false should downgrade wss:// to ws:// (explicit override)."""
+        monkeypatch.setenv("SURREAL_URL", "wss://example.com:8000")
+        monkeypatch.setenv("SURREAL_TLS", "false")
+        config = SurrealConfig()
+        assert config.tls is False
+        assert config.get_url() == "ws://example.com:8000/rpc"
+
+    def test_init_tls_flag(self, reset_config):
+        """init(tls=True) should flip the TLS flag without changing mode."""
+        from surreal_basics import init
+
+        init(mode="ws", host="example.com", port=443, tls=True)
+        config = SurrealConfig()
+        # init() mutates the global singleton; reset_config gives us a fresh one
+        # so we explicitly test the global.
+        from surreal_basics import get_config
+
+        cfg = get_config()
+        assert cfg.tls is True
+        assert cfg.get_url() == "wss://example.com:443/rpc"
+
+    def test_init_tls_recomputes_default_port(self, reset_config, monkeypatch):
+        """init(tls=True) without an explicit port should yield :443, not :8000."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        from surreal_basics import get_config, init
+
+        init(mode="ws", host="example.com", tls=True)
+        cfg = get_config()
+        assert cfg.port == 443
+        assert cfg.get_url() == "wss://example.com:443/rpc"
+
+    def test_init_tls_false_recomputes_default_port(
+        self, reset_config, monkeypatch
+    ):
+        """init(tls=False) on a config that had implicit :443 should snap back to :8000."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "wss://example.com")  # implicit :443
+        from surreal_basics import get_config, init
+
+        init(tls=False)
+        cfg = get_config()
+        assert cfg.port == 8000
+        assert cfg.get_url() == "ws://example.com:8000/rpc"
+
+    def test_init_tls_preserves_explicit_port_env(self, reset_config, monkeypatch):
+        """SURREAL_PORT should still pin the port even when init(tls=True) is called."""
+        monkeypatch.setenv("SURREAL_PORT", "8018")
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        from surreal_basics import get_config, init
+
+        init(mode="ws", host="example.com", tls=True)
+        cfg = get_config()
+        assert cfg.port == 8018
+        assert cfg.get_url() == "wss://example.com:8018/rpc"
+
+    def test_init_tls_preserves_explicit_port_arg(self, reset_config, monkeypatch):
+        """An explicit port= argument should win over the implicit-default recompute."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        from surreal_basics import get_config, init
+
+        init(mode="ws", host="example.com", port=9000, tls=True)
+        cfg = get_config()
+        assert cfg.port == 9000
+        assert cfg.get_url() == "wss://example.com:9000/rpc"
+
+    def test_init_tls_preserves_port_set_by_earlier_init_call(
+        self, reset_config, monkeypatch
+    ):
+        """A port set by an earlier init(port=...) must survive a later init(tls=...)."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        from surreal_basics import get_config, init
+
+        init(mode="ws", host="example.com", port=9000)
+        init(tls=True)  # separate call — must not overwrite the 9000 above
+        cfg = get_config()
+        assert cfg.port == 9000
+        assert cfg.get_url() == "wss://example.com:9000/rpc"
 
     def test_surreal_password_alias(self, reset_config, monkeypatch):
         """Test SURREAL_PASSWORD as alias for SURREAL_PASS."""

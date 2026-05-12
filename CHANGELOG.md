@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-05-12
+
+### Fixed
+
+- `SURREAL_URL` with `wss://` or `https://` scheme no longer silently downgrades
+  to plaintext `ws://` / `http://`. The TLS information is preserved end-to-end
+  through `SurrealConfig.get_url()`, unblocking Surreal Cloud and any
+  TLS-fronted SurrealDB deployment ([#5](https://github.com/lfnovo/surreal-basics/issues/5)).
+- When `SURREAL_URL` has no explicit port and uses a TLS scheme, the default
+  port is now `443` (was `8000`).
+
+### Changed
+
+- `SURREAL_URL` is now authoritative for the port when set. A leftover
+  `SURREAL_PORT=8018` from a local `.env` no longer leaks into a
+  `SURREAL_URL=wss://...` cloud run — the URL's explicit port (or its
+  scheme default) wins. `SURREAL_PORT` continues to work unchanged in
+  the "no URL, build from parts" mode. To override a URL's port, set
+  the port explicitly in `SURREAL_URL` itself.
+
+### Added
+
+- `tls` field on `SurrealConfig` and `tls` argument on `init()` to force TLS
+  on/off independently of the URL scheme.
+- `SURREAL_TLS` environment variable to override TLS at runtime.
+
 ## [0.3.0] - 2026-03-28
 
 ### Added

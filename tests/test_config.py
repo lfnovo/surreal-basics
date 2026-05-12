@@ -153,6 +153,8 @@ class TestEnvironmentVariableAliases:
         assert config.host == "secure.example.com"
         assert config.port == 443
         assert config.mode == "ws"
+        assert config.tls is True
+        assert config.get_url() == "wss://secure.example.com:443/rpc"
 
     def test_surreal_url_https(self, reset_config, monkeypatch):
         """Test SURREAL_URL parsing for HTTPS."""
@@ -161,6 +163,89 @@ class TestEnvironmentVariableAliases:
         assert config.host == "secure.example.com"
         assert config.port == 443
         assert config.mode == "http"
+        assert config.tls is True
+        assert config.get_url() == "https://secure.example.com:443/rpc"
+
+    def test_surreal_url_wss_no_explicit_port_defaults_to_443(
+        self, reset_config, monkeypatch
+    ):
+        """wss:// without explicit port should default to 443, not 8000."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "wss://tenant.aws-use1.surreal.cloud")
+        config = SurrealConfig()
+        assert config.host == "tenant.aws-use1.surreal.cloud"
+        assert config.port == 443
+        assert config.mode == "ws"
+        assert config.tls is True
+        assert (
+            config.get_url() == "wss://tenant.aws-use1.surreal.cloud:443/rpc"
+        )
+
+    def test_surreal_url_https_no_explicit_port_defaults_to_443(
+        self, reset_config, monkeypatch
+    ):
+        """https:// without explicit port should default to 443."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "https://tenant.aws-use1.surreal.cloud")
+        config = SurrealConfig()
+        assert config.port == 443
+        assert config.tls is True
+        assert (
+            config.get_url()
+            == "https://tenant.aws-use1.surreal.cloud:443/rpc"
+        )
+
+    def test_surreal_url_ws_no_explicit_port_defaults_to_8000(
+        self, reset_config, monkeypatch
+    ):
+        """Non-TLS ws:// without explicit port should keep 8000 default."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "ws://localhost")
+        config = SurrealConfig()
+        assert config.port == 8000
+        assert config.tls is False
+        assert config.get_url() == "ws://localhost:8000/rpc"
+
+    def test_surreal_port_env_overrides_url_port(self, reset_config, monkeypatch):
+        """SURREAL_PORT should take precedence over URL port (local dev escape hatch)."""
+        monkeypatch.setenv("SURREAL_URL", "wss://example.com:443")
+        monkeypatch.setenv("SURREAL_PORT", "8018")
+        config = SurrealConfig()
+        assert config.port == 8018
+        assert config.tls is True
+        assert config.get_url() == "wss://example.com:8018/rpc"
+
+    def test_surreal_tls_env_overrides_scheme(self, reset_config, monkeypatch):
+        """SURREAL_TLS=true should upgrade a ws:// URL to wss://."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.setenv("SURREAL_URL", "ws://example.com:8443")
+        monkeypatch.setenv("SURREAL_TLS", "true")
+        config = SurrealConfig()
+        assert config.tls is True
+        assert config.mode == "ws"
+        assert config.get_url() == "wss://example.com:8443/rpc"
+
+    def test_surreal_tls_env_false_downgrades(self, reset_config, monkeypatch):
+        """SURREAL_TLS=false should downgrade wss:// to ws:// (explicit override)."""
+        monkeypatch.setenv("SURREAL_URL", "wss://example.com:8000")
+        monkeypatch.setenv("SURREAL_TLS", "false")
+        config = SurrealConfig()
+        assert config.tls is False
+        assert config.get_url() == "ws://example.com:8000/rpc"
+
+    def test_init_tls_flag(self, reset_config):
+        """init(tls=True) should flip the TLS flag without changing mode."""
+        from surreal_basics import init
+
+        init(mode="ws", host="example.com", port=443, tls=True)
+        config = SurrealConfig()
+        # init() mutates the global singleton; reset_config gives us a fresh one
+        # so we explicitly test the global.
+        from surreal_basics import get_config
+
+        cfg = get_config()
+        assert cfg.tls is True
+        assert cfg.get_url() == "wss://example.com:443/rpc"
 
     def test_surreal_password_alias(self, reset_config, monkeypatch):
         """Test SURREAL_PASSWORD as alias for SURREAL_PASS."""

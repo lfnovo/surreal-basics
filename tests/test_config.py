@@ -293,6 +293,20 @@ class TestEnvironmentVariableAliases:
         assert cfg.port == 9000
         assert cfg.get_url() == "wss://example.com:9000/rpc"
 
+    def test_init_tls_preserves_port_set_by_earlier_init_call(
+        self, reset_config, monkeypatch
+    ):
+        """A port set by an earlier init(port=...) must survive a later init(tls=...)."""
+        monkeypatch.delenv("SURREAL_PORT", raising=False)
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        from surreal_basics import get_config, init
+
+        init(mode="ws", host="example.com", port=9000)
+        init(tls=True)  # separate call — must not overwrite the 9000 above
+        cfg = get_config()
+        assert cfg.port == 9000
+        assert cfg.get_url() == "wss://example.com:9000/rpc"
+
     def test_surreal_password_alias(self, reset_config, monkeypatch):
         """Test SURREAL_PASSWORD as alias for SURREAL_PASS."""
         monkeypatch.setenv("SURREAL_PASSWORD", "mypassword")

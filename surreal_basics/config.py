@@ -154,6 +154,12 @@ class SurrealConfig:
     )
     path: Optional[str] = field(default_factory=_get_path)
     tls: bool = field(default_factory=_get_tls)
+    # Internal: True when the port came from an explicit source (SURREAL_PORT,
+    # URL port, or init(port=...)). Used to decide whether init(tls=...) is
+    # allowed to recompute the implicit scheme-aware default.
+    _port_explicit: bool = field(
+        default_factory=lambda: not _port_is_implicit(), repr=False
+    )
 
     def get_url(self) -> str:
         """Get the connection URL based on current mode."""
@@ -216,6 +222,7 @@ def init(
         config.host = host
     if port is not None:
         config.port = port
+        config._port_explicit = True
     if user is not None:
         config.user = user
     if password is not None:
@@ -234,8 +241,9 @@ def init(
         config.tls = tls
         # Recompute the implicit port default when the user flips TLS without
         # specifying a port — e.g. init(tls=True) on a fresh config should
-        # yield :443, not the non-TLS default of :8000.
-        if port is None and _port_is_implicit():
+        # yield :443, not the non-TLS default of :8000. Preserve any port the
+        # user already pinned via SURREAL_PORT, URL, or a prior init(port=...).
+        if port is None and not config._port_explicit:
             config.port = _default_port_for(tls)
 
 

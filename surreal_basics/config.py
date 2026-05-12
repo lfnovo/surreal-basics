@@ -83,35 +83,46 @@ def _get_tls() -> bool:
     return False
 
 
-def _port_is_implicit() -> bool:
-    """True when no explicit port was provided via SURREAL_PORT or SURREAL_URL."""
-    if os.getenv("SURREAL_PORT"):
-        return False
-    parsed = _parse_surreal_url()
-    if parsed and parsed.get("port") is not None:
-        return False
-    return True
-
-
 def _default_port_for(tls: bool) -> int:
     return 443 if tls else 8000
 
 
+def _port_is_implicit() -> bool:
+    """True when no explicit port was provided.
+
+    Mirrors the precedence in `_get_port`: when SURREAL_URL is set, the URL
+    is authoritative and SURREAL_PORT is ignored. Otherwise SURREAL_PORT
+    counts as explicit.
+    """
+    parsed = _parse_surreal_url()
+    if parsed and "host" in parsed:
+        return parsed.get("port") is None
+    return os.getenv("SURREAL_PORT") is None
+
+
 def _get_port() -> int:
-    """Get port from SURREAL_PORT, SURREAL_URL, or scheme-aware default.
+    """Get port using URL-first precedence.
 
     Precedence:
-        1. SURREAL_PORT env var (explicit override)
-        2. Port in SURREAL_URL
-        3. 443 if TLS, else 8000
+        1. If SURREAL_URL is set (network scheme), the URL is authoritative:
+            a. URL has an explicit port → use it
+            b. URL has no port → scheme default (443 for wss/https, 8000 for ws/http)
+           SURREAL_PORT is intentionally ignored in this branch so that a
+           sourced local-dev .env (SURREAL_PORT=8018) doesn't leak into a
+           SURREAL_URL=wss://... cloud connection.
+        2. If SURREAL_URL is not set:
+            a. SURREAL_PORT env → use it
+            b. Otherwise → scheme default
     """
+    parsed = _parse_surreal_url()
+    if parsed and "host" in parsed:
+        if parsed.get("port") is not None:
+            return parsed["port"]
+        return _default_port_for(_get_tls())
+
     env_port = os.getenv("SURREAL_PORT")
     if env_port:
         return int(env_port)
-
-    parsed = _parse_surreal_url()
-    if parsed and parsed.get("port") is not None:
-        return parsed["port"]
 
     return _default_port_for(_get_tls())
 

@@ -206,14 +206,33 @@ class TestEnvironmentVariableAliases:
         assert config.tls is False
         assert config.get_url() == "ws://localhost:8000/rpc"
 
-    def test_surreal_port_env_overrides_url_port(self, reset_config, monkeypatch):
-        """SURREAL_PORT should take precedence over URL port (local dev escape hatch)."""
-        monkeypatch.setenv("SURREAL_URL", "wss://example.com:443")
+    def test_surreal_url_scheme_wins_over_port_env(self, reset_config, monkeypatch):
+        """SURREAL_PORT from a sourced .env must not leak into a SURREAL_URL=wss://... run."""
+        monkeypatch.setenv("SURREAL_PORT", "8018")  # local dev leftover
+        monkeypatch.setenv("SURREAL_URL", "wss://tenant.surreal.cloud")
+        config = SurrealConfig()
+        assert config.port == 443
+        assert config.tls is True
+        assert config.get_url() == "wss://tenant.surreal.cloud:443/rpc"
+
+    def test_surreal_url_explicit_port_wins_over_port_env(
+        self, reset_config, monkeypatch
+    ):
+        """An explicit URL port wins over SURREAL_PORT — URL is authoritative."""
+        monkeypatch.setenv("SURREAL_PORT", "8018")
+        monkeypatch.setenv("SURREAL_URL", "wss://tenant.surreal.cloud:9000")
+        config = SurrealConfig()
+        assert config.port == 9000
+        assert config.get_url() == "wss://tenant.surreal.cloud:9000/rpc"
+
+    def test_surreal_port_still_wins_when_no_url(self, reset_config, monkeypatch):
+        """Without SURREAL_URL, SURREAL_PORT must still configure the port (local dev path)."""
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        monkeypatch.setenv("SURREAL_HOST", "localhost")
         monkeypatch.setenv("SURREAL_PORT", "8018")
         config = SurrealConfig()
         assert config.port == 8018
-        assert config.tls is True
-        assert config.get_url() == "wss://example.com:8018/rpc"
+        assert config.get_url() == "ws://localhost:8018/rpc"
 
     def test_surreal_tls_env_overrides_scheme(self, reset_config, monkeypatch):
         """SURREAL_TLS=true should upgrade a ws:// URL to wss://."""

@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When `SURREAL_URL` has no explicit port and uses a TLS scheme, the default
   port is now `443` (was `8000`).
 
+### Changed
+
+- `SURREAL_URL` is now authoritative for the port when set. A leftover
+  `SURREAL_PORT=8018` from a local `.env` no longer leaks into a
+  `SURREAL_URL=wss://...` cloud run — the URL's explicit port (or its
+  scheme default) wins. `SURREAL_PORT` continues to work unchanged in
+  the "no URL, build from parts" mode. To override a URL's port, set
+  the port explicitly in `SURREAL_URL` itself.
+
 ### Added
 
 - `tls` field on `SurrealConfig` and `tls` argument on `init()` to force TLS

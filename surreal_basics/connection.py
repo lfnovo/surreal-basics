@@ -6,7 +6,17 @@ from typing import AsyncGenerator, Generator, Optional
 from surrealdb import AsyncSurreal, Surreal  # type: ignore
 
 from .config import get_config
-from .exceptions import SurrealDBConnectionError
+from .exceptions import SurrealDBConnectionError, SurrealDBTransientError
+
+try:
+    from websockets.exceptions import ConnectionClosed as _WSConnectionClosed
+except ImportError:  # pragma: no cover - websockets ships with surrealdb
+    class _WSConnectionClosed(Exception):  # type: ignore[no-redef]
+        """Fallback when websockets isn't importable; never matches a real drop."""
+
+
+# Exceptions that signal the persistent WS singleton is dead and must be rebuilt.
+_WS_DROPPED_EXCEPTIONS: tuple[type[BaseException], ...] = (_WSConnectionClosed,)
 
 
 class ConnectionManager:
@@ -153,7 +163,17 @@ class ConnectionManager:
                     cls._ws_async_connected = False
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
-            yield cls._ws_async_connection
+            try:
+                yield cls._ws_async_connection
+            except _WS_DROPPED_EXCEPTIONS as e:
+                # Underlying socket died (idle timeout, network drop, server close).
+                # Drop the singleton so the next attempt rebuilds it, and surface as
+                # a transient error so surreal_retry_async retries the operation.
+                cls._ws_async_connection = None
+                cls._ws_async_connected = False
+                raise SurrealDBTransientError(
+                    f"WebSocket connection dropped: {e}"
+                ) from e
 
         elif config.persistent:
             # HTTP with persistent connection
@@ -223,7 +243,17 @@ class ConnectionManager:
                     cls._ws_sync_connected = False
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
-            yield cls._ws_sync_connection
+            try:
+                yield cls._ws_sync_connection
+            except _WS_DROPPED_EXCEPTIONS as e:
+                # Underlying socket died (idle timeout, network drop, server close).
+                # Drop the singleton so the next attempt rebuilds it, and surface as
+                # a transient error so surreal_retry retries the operation.
+                cls._ws_sync_connection = None
+                cls._ws_sync_connected = False
+                raise SurrealDBTransientError(
+                    f"WebSocket connection dropped: {e}"
+                ) from e
 
         elif config.persistent:
             # HTTP with persistent connection

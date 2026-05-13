@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-05-13
+
+### Fixed
+
+- Persistent WebSocket singleton now detects a dropped underlying socket
+  (idle timeout, network blip, server-side close) and rebuilds itself on the
+  next call. Previously, the `_ws_*_connected` flag was set once at signin
+  and never cleared on a runtime drop, so every operation after the drop
+  failed with `websockets.exceptions.ConnectionClosedError: no close frame
+  received or sent`. The fix wraps the WS yield in `get_async_connection` /
+  `get_sync_connection`, catches `ConnectionClosed`, resets the singleton,
+  and re-raises as `SurrealDBTransientError` — letting `surreal_retry_async`
+  / `surreal_retry` reconnect transparently
+  ([#7](https://github.com/lfnovo/surreal-basics/issues/7)).
+
 ## [0.3.1] - 2026-05-12
 
 ### Fixed

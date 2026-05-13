@@ -2,6 +2,7 @@
 
 import pytest
 import pytest_asyncio
+from websockets.exceptions import ConnectionClosedError
 
 from surreal_basics import (
     init,
@@ -11,6 +12,7 @@ from surreal_basics import (
     reset_connections_async,
 )
 from surreal_basics.connection import ConnectionManager
+from surreal_basics.exceptions import SurrealDBTransientError
 
 
 class TestConnectionManager:
@@ -170,3 +172,76 @@ class TestMemoryConnection:
         await repo_query("DELETE test_mem_async")
         result = await repo_query("SELECT * FROM test_mem_async")
         assert len(result) == 0
+
+
+class TestWSDroppedConnectionRecovery:
+    """Tests for auto-detect/recover when the persistent WS singleton dies.
+
+    These tests pre-inject a fake singleton so the connection-setup branch is
+    skipped, then raise ConnectionClosedError inside the yielded context to
+    simulate a server-side or network drop mid-operation.
+    """
+
+    @staticmethod
+    def _fake_closed_error() -> ConnectionClosedError:
+        # ConnectionClosedError(rcvd, sent) — None/None is the "abrupt drop"
+        # variant that surfaces in real life (no close frame received or sent).
+        return ConnectionClosedError(None, None)
+
+    @pytest.mark.asyncio
+    async def test_async_ws_drop_resets_singleton(self, reset_config):
+        init(host="localhost", port=8000, mode="ws", persistent=True)
+        try:
+            sentinel = object()
+            ConnectionManager._ws_async_connection = sentinel  # type: ignore[assignment]
+            ConnectionManager._ws_async_connected = True
+
+            with pytest.raises(SurrealDBTransientError):
+                async with ConnectionManager.get_async_connection() as conn:
+                    assert conn is sentinel
+                    raise self._fake_closed_error()
+
+            assert ConnectionManager._ws_async_connection is None
+            assert ConnectionManager._ws_async_connected is False
+        finally:
+            ConnectionManager._ws_async_connection = None
+            ConnectionManager._ws_async_connected = False
+
+    def test_sync_ws_drop_resets_singleton(self, reset_config):
+        init(host="localhost", port=8000, mode="ws", persistent=True)
+        try:
+            sentinel = object()
+            ConnectionManager._ws_sync_connection = sentinel  # type: ignore[assignment]
+            ConnectionManager._ws_sync_connected = True
+
+            with pytest.raises(SurrealDBTransientError):
+                with ConnectionManager.get_sync_connection() as conn:
+                    assert conn is sentinel
+                    raise self._fake_closed_error()
+
+            assert ConnectionManager._ws_sync_connection is None
+            assert ConnectionManager._ws_sync_connected is False
+        finally:
+            ConnectionManager._ws_sync_connection = None
+            ConnectionManager._ws_sync_connected = False
+
+    @pytest.mark.asyncio
+    async def test_async_non_ws_exception_propagates(self, reset_config):
+        """Non-ConnectionClosed exceptions should not be converted or reset the singleton."""
+        init(host="localhost", port=8000, mode="ws", persistent=True)
+        try:
+            sentinel = object()
+            ConnectionManager._ws_async_connection = sentinel  # type: ignore[assignment]
+            ConnectionManager._ws_async_connected = True
+
+            with pytest.raises(ValueError):
+                async with ConnectionManager.get_async_connection() as conn:
+                    assert conn is sentinel
+                    raise ValueError("not a connection drop")
+
+            # Singleton stays intact — only drops are special-cased.
+            assert ConnectionManager._ws_async_connection is sentinel
+            assert ConnectionManager._ws_async_connected is True
+        finally:
+            ConnectionManager._ws_async_connection = None
+            ConnectionManager._ws_async_connected = False

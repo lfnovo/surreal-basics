@@ -25,11 +25,19 @@ except ImportError:  # pragma: no cover - websockets ships with surrealdb
 
 
 # Exceptions that signal the persistent WS singleton is dead and must be rebuilt.
-# The ConnectionManager catches these to reset the singleton and surface them as
-# transient errors so the retry layer reconnects transparently.
+# The ConnectionManager catches these (only on the WS path) to reset the
+# singleton and surface them as transient errors so the retry layer reconnects
+# transparently.
+#
+# KeyError is included because the surrealdb 2.x async/blocking WS clients raise
+# a bare KeyError(<request-uuid>) when the socket drops mid-request: the receive
+# loop clears the pending-future map on close, then the in-flight `_send` hits
+# `del self.qry[query_id]` on the now-missing key. It is the 2.x dead-socket
+# symptom, not a logic error.
 WS_DROPPED_EXCEPTIONS: tuple[type[BaseException], ...] = (
     _WSConnectionClosed,
     ConnectionUnavailableError,
+    KeyError,
 )
 
 # Substring SurrealDB uses to flag a transaction/lock conflict as retryable.

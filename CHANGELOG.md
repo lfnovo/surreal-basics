@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **SurrealDB v2 and v3** server (`SBL_TEST_SURREAL_VERSION`). CI gained
   lint/type-check and a v2/v3 integration matrix, and measures coverage.
 
+### Fixed
+
+- Restored transparent WebSocket reconnect on the 2.x SDK. A dropped persistent
+  socket surfaces in 2.x as a bare `KeyError(<request-uuid>)` (the in-flight
+  request's future map is cleared on close), which the previous drop-detection
+  set did not catch — the first call after a drop leaked a raw `KeyError`
+  instead of reconnecting. `KeyError` is now treated as a WS-drop on the WS
+  path, so the singleton is rebuilt and the operation retried transparently.
+
 ### Changed
 
 - **Upgraded to the `surrealdb` 2.x SDK** (`surrealdb>=2.0.0`), which supports

@@ -31,6 +31,14 @@ class TestTranslateErrors:
             with translate_errors():
                 raise ConnectionUnavailableError("socket gone")
 
+    def test_keyerror_is_reraised_as_ws_drop(self):
+        # surrealdb 2.x raises a bare KeyError(request-uuid) when the WS socket
+        # drops mid-request; translate_errors must re-raise it (not swallow it)
+        # so the ConnectionManager can reset the singleton and retry.
+        with pytest.raises(KeyError):
+            with translate_errors():
+                raise KeyError("00000000-aaaa-bbbb-cccc-000000000000")
+
     def test_non_surreal_error_passes_through(self):
         with pytest.raises(ValueError):
             with translate_errors():

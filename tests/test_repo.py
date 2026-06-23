@@ -157,3 +157,26 @@ class TestRepoAsync:
 
         # Cleanup relationship table
         await repo_query("DELETE follows")
+
+    async def test_repo_relate_data_cannot_override_endpoints(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        """data must not be able to override the validated in/out endpoints."""
+        user1 = await repo_create(TEST_TABLE, {"name": "User 1"})
+        user2 = await repo_create(TEST_TABLE, {"name": "User 2"})
+        if isinstance(user1, list):
+            user1 = user1[0]
+        if isinstance(user2, list):
+            user2 = user2[0]
+
+        result = await repo_relate(
+            user1["id"],
+            "follows",
+            user2["id"],
+            {"in": "evil:hacker", "out": "evil:target"},
+        )
+
+        assert result[0]["in"] == user1["id"]
+        assert result[0]["out"] == user2["id"]
+
+        await repo_query("DELETE follows")

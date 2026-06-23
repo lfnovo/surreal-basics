@@ -1,4 +1,4 @@
-.PHONY: help install test test-unit test-integration lint format typecheck check db-up db-down bench
+.PHONY: help install test test-unit test-integration test-integration-v3 lint format typecheck check db-up db-up-v3 db-down bench
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \

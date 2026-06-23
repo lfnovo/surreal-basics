@@ -204,10 +204,12 @@ async def repo_relate(
     validate_identifier(relationship, "relationship")
     validate_identifier(target, "target")
 
+    # in/out come last so a stray "in"/"out" in data can't override the
+    # validated source/target endpoints.
     payload = {
+        **data,
         "in": ensure_record_id(source),
         "out": ensure_record_id(target),
-        **data,
     }
     async with get_async_connection() as conn:
         with translate_errors():

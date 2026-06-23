@@ -54,7 +54,7 @@ def translate_errors() -> Iterator[None]:
         raise
     except SurrealError as e:
         msg = str(e)
-        if _RETRYABLE_MARKER in msg:
+        if _RETRYABLE_MARKER in msg.lower():
             raise SurrealDBTransientError(msg) from e
         raise SurrealDBQueryError(msg) from e
 

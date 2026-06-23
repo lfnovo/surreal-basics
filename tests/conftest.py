@@ -24,9 +24,12 @@ from surreal_basics import (
 # service and its published host port.
 _SURREAL_VERSIONS = {"v2": ("surrealdb-v2", 8000), "v3": ("surrealdb-v3", 8001)}
 _SURREAL_VERSION = os.getenv("SBL_TEST_SURREAL_VERSION", "v2")
-_SERVICE, _DEFAULT_PORT = _SURREAL_VERSIONS.get(
-    _SURREAL_VERSION, _SURREAL_VERSIONS["v2"]
-)
+if _SURREAL_VERSION not in _SURREAL_VERSIONS:
+    raise ValueError(
+        f"Unknown SBL_TEST_SURREAL_VERSION {_SURREAL_VERSION!r}; "
+        f"expected one of {sorted(_SURREAL_VERSIONS)}"
+    )
+_SERVICE, _DEFAULT_PORT = _SURREAL_VERSIONS[_SURREAL_VERSION]
 
 # Test configuration
 TEST_HOST = os.getenv("TEST_SURREAL_HOST", "localhost")

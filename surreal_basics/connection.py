@@ -117,6 +117,25 @@ class ConnectionManager:
             cls._embedded_async_connection = None
             cls._embedded_async_connected = False
 
+    @staticmethod
+    async def _close_quietly_async(conn: Optional[AsyncSurreal]) -> None:
+        """Best-effort close of a discarded connection (e.g. after a rejected
+        auth token, where the socket is still open and must not leak)."""
+        if conn is not None:
+            try:
+                await conn.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _close_quietly_sync(conn: Optional[Surreal]) -> None:
+        """Best-effort close of a discarded connection (sync)."""
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     @classmethod
     @asynccontextmanager
     async def get_async_connection(cls) -> AsyncGenerator[AsyncSurreal, None]:
@@ -176,8 +195,10 @@ class ConnectionManager:
                 # Auth/IAM error on a still-open socket = the cached token was
                 # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
                 if is_auth_rejected_error(e):
+                    conn = cls._ws_async_connection
                     cls._ws_async_connection = None
                     cls._ws_async_connected = False
+                    await cls._close_quietly_async(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"
                     ) from e
@@ -201,8 +222,10 @@ class ConnectionManager:
                 yield cls._http_async_connection
             except SurrealDBQueryError as e:
                 if is_auth_rejected_error(e):
+                    conn = cls._http_async_connection
                     cls._http_async_connection = None
                     cls._http_async_connected = False
+                    await cls._close_quietly_async(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"
                     ) from e
@@ -278,8 +301,10 @@ class ConnectionManager:
                 # Auth/IAM error on a still-open socket = the cached token was
                 # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
                 if is_auth_rejected_error(e):
+                    conn = cls._ws_sync_connection
                     cls._ws_sync_connection = None
                     cls._ws_sync_connected = False
+                    cls._close_quietly_sync(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"
                     ) from e
@@ -303,8 +328,10 @@ class ConnectionManager:
                 yield cls._http_sync_connection
             except SurrealDBQueryError as e:
                 if is_auth_rejected_error(e):
+                    conn = cls._http_sync_connection
                     cls._http_sync_connection = None
                     cls._http_sync_connected = False
+                    cls._close_quietly_sync(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"
                     ) from e

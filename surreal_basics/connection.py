@@ -4,17 +4,29 @@ from contextlib import asynccontextmanager, contextmanager
 from typing import AsyncGenerator, Generator, Optional
 
 from surrealdb import AsyncSurreal, Surreal  # type: ignore
+from surrealdb.errors import SurrealError  # type: ignore
 
 from ._sdk import (
     WS_DROPPED_EXCEPTIONS,
     is_auth_rejected_error,
     is_dropped_request_keyerror,
+    token_expiry,
+    token_near_expiry,
 )
 from .config import get_config
 from .exceptions import (
     SurrealDBConnectionError,
     SurrealDBQueryError,
     SurrealDBTransientError,
+)
+
+# Errors that, on a persistent connection, mean the cached auth token was
+# rejected — caught after WS-drop/KeyError so genuine query errors fall through.
+# Covers both the translated form (repo_* path) and the raw SDK form (callers
+# using the connection directly, who have no translate_errors/retry wrapper).
+_AUTH_REJECTION_TYPES: tuple[type[BaseException], ...] = (
+    SurrealDBQueryError,
+    SurrealError,
 )
 
 
@@ -41,6 +53,12 @@ class ConnectionManager:
     _http_async_connected: bool = False
     _embedded_sync_connected: bool = False
     _embedded_async_connected: bool = False
+    # Auth-token expiry (epoch seconds) per persistent singleton, for proactive
+    # refresh. None when unknown (non-JWT token) or not yet signed in.
+    _ws_sync_token_exp: Optional[float] = None
+    _ws_async_token_exp: Optional[float] = None
+    _http_sync_token_exp: Optional[float] = None
+    _http_async_token_exp: Optional[float] = None
 
     @classmethod
     def _get_credentials(cls) -> dict:
@@ -64,11 +82,13 @@ class ConnectionManager:
                 pass
             cls._ws_sync_connection = None
             cls._ws_sync_connected = False
+            cls._ws_sync_token_exp = None
 
         if cls._ws_async_connection is not None:
             # Note: async close should be called from async context
             cls._ws_async_connection = None
             cls._ws_async_connected = False
+            cls._ws_async_token_exp = None
 
         if cls._http_sync_connection is not None:
             try:
@@ -77,10 +97,12 @@ class ConnectionManager:
                 pass
             cls._http_sync_connection = None
             cls._http_sync_connected = False
+            cls._http_sync_token_exp = None
 
         if cls._http_async_connection is not None:
             cls._http_async_connection = None
             cls._http_async_connected = False
+            cls._http_async_token_exp = None
 
         if cls._embedded_sync_connection is not None:
             try:
@@ -104,6 +126,7 @@ class ConnectionManager:
                 pass
             cls._ws_async_connection = None
             cls._ws_async_connected = False
+            cls._ws_async_token_exp = None
 
         if cls._http_async_connection is not None:
             try:
@@ -112,6 +135,7 @@ class ConnectionManager:
                 pass
             cls._http_async_connection = None
             cls._http_async_connected = False
+            cls._http_async_token_exp = None
 
         if cls._embedded_async_connection is not None:
             try:
@@ -172,16 +196,34 @@ class ConnectionManager:
 
         elif config.mode == "ws":
             # WebSocket: always use persistent connection
-            if cls._ws_async_connection is None or not cls._ws_async_connected:
+            existing = cls._ws_async_connection
+            needs_new = existing is None or not cls._ws_async_connected
+            if (
+                existing is not None
+                and not needs_new
+                and token_near_expiry(cls._ws_async_token_exp)
+            ):
+                # Proactively refresh the token before it lapses, so every caller
+                # (repo_* and direct conn.query()) gets a valid-auth connection.
+                try:
+                    tok = await existing.signin(cls._get_credentials())
+                    cls._ws_async_token_exp = token_expiry(tok)
+                except Exception:
+                    # Refresh failed — close the stale client before rebuilding.
+                    await cls._close_quietly_async(existing)
+                    needs_new = True
+            if needs_new:
                 try:
                     cls._ws_async_connection = AsyncSurreal(config.get_url())
-                    await cls._ws_async_connection.signin(cls._get_credentials())
+                    tok = await cls._ws_async_connection.signin(cls._get_credentials())
+                    cls._ws_async_token_exp = token_expiry(tok)
                     ns, db = cls._get_ns_db()
                     await cls._ws_async_connection.use(ns, db)
                     cls._ws_async_connected = True
                 except Exception as e:
                     cls._ws_async_connection = None
                     cls._ws_async_connected = False
+                    cls._ws_async_token_exp = None
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
             try:
@@ -192,6 +234,7 @@ class ConnectionManager:
                 # a transient error so surreal_retry_async retries the operation.
                 cls._ws_async_connection = None
                 cls._ws_async_connected = False
+                cls._ws_async_token_exp = None
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
                 ) from e
@@ -202,16 +245,19 @@ class ConnectionManager:
                     raise
                 cls._ws_async_connection = None
                 cls._ws_async_connected = False
+                cls._ws_async_token_exp = None
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped (request {e})"
                 ) from e
-            except SurrealDBQueryError as e:
+            except _AUTH_REJECTION_TYPES as e:
                 # Auth/IAM error on a still-open socket = the cached token was
-                # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
+                # rejected. Rebuild so the next call re-signs in; non-auth errors
+                # (and raw SDK errors from direct callers) re-raise untouched.
                 if is_auth_rejected_error(e):
                     conn = cls._ws_async_connection
                     cls._ws_async_connection = None
                     cls._ws_async_connected = False
+                    cls._ws_async_token_exp = None
                     await cls._close_quietly_async(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"
@@ -220,25 +266,43 @@ class ConnectionManager:
 
         elif config.persistent:
             # HTTP with persistent connection
-            if cls._http_async_connection is None or not cls._http_async_connected:
+            existing = cls._http_async_connection
+            needs_new = existing is None or not cls._http_async_connected
+            if (
+                existing is not None
+                and not needs_new
+                and token_near_expiry(cls._http_async_token_exp)
+            ):
+                try:
+                    tok = await existing.signin(cls._get_credentials())
+                    cls._http_async_token_exp = token_expiry(tok)
+                except Exception:
+                    await cls._close_quietly_async(existing)
+                    needs_new = True
+            if needs_new:
                 try:
                     cls._http_async_connection = AsyncSurreal(config.get_url())
-                    await cls._http_async_connection.signin(cls._get_credentials())
+                    tok = await cls._http_async_connection.signin(
+                        cls._get_credentials()
+                    )
+                    cls._http_async_token_exp = token_expiry(tok)
                     ns, db = cls._get_ns_db()
                     await cls._http_async_connection.use(ns, db)
                     cls._http_async_connected = True
                 except Exception as e:
                     cls._http_async_connection = None
                     cls._http_async_connected = False
+                    cls._http_async_token_exp = None
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
             try:
                 yield cls._http_async_connection
-            except SurrealDBQueryError as e:
+            except _AUTH_REJECTION_TYPES as e:
                 if is_auth_rejected_error(e):
                     conn = cls._http_async_connection
                     cls._http_async_connection = None
                     cls._http_async_connected = False
+                    cls._http_async_token_exp = None
                     await cls._close_quietly_async(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"
@@ -288,16 +352,32 @@ class ConnectionManager:
 
         elif config.mode == "ws":
             # WebSocket: always use persistent connection
-            if cls._ws_sync_connection is None or not cls._ws_sync_connected:
+            existing = cls._ws_sync_connection
+            needs_new = existing is None or not cls._ws_sync_connected
+            if (
+                existing is not None
+                and not needs_new
+                and token_near_expiry(cls._ws_sync_token_exp)
+            ):
+                try:
+                    tok = existing.signin(cls._get_credentials())
+                    cls._ws_sync_token_exp = token_expiry(tok)
+                except Exception:
+                    # Refresh failed — close the stale client before rebuilding.
+                    cls._close_quietly_sync(existing)
+                    needs_new = True
+            if needs_new:
                 try:
                     cls._ws_sync_connection = Surreal(config.get_url())
-                    cls._ws_sync_connection.signin(cls._get_credentials())
+                    tok = cls._ws_sync_connection.signin(cls._get_credentials())
+                    cls._ws_sync_token_exp = token_expiry(tok)
                     ns, db = cls._get_ns_db()
                     cls._ws_sync_connection.use(ns, db)
                     cls._ws_sync_connected = True
                 except Exception as e:
                     cls._ws_sync_connection = None
                     cls._ws_sync_connected = False
+                    cls._ws_sync_token_exp = None
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
             try:
@@ -308,6 +388,7 @@ class ConnectionManager:
                 # a transient error so surreal_retry retries the operation.
                 cls._ws_sync_connection = None
                 cls._ws_sync_connected = False
+                cls._ws_sync_token_exp = None
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
                 ) from e
@@ -318,16 +399,19 @@ class ConnectionManager:
                     raise
                 cls._ws_sync_connection = None
                 cls._ws_sync_connected = False
+                cls._ws_sync_token_exp = None
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped (request {e})"
                 ) from e
-            except SurrealDBQueryError as e:
+            except _AUTH_REJECTION_TYPES as e:
                 # Auth/IAM error on a still-open socket = the cached token was
-                # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
+                # rejected. Rebuild so the next call re-signs in; non-auth errors
+                # (and raw SDK errors from direct callers) re-raise untouched.
                 if is_auth_rejected_error(e):
                     conn = cls._ws_sync_connection
                     cls._ws_sync_connection = None
                     cls._ws_sync_connected = False
+                    cls._ws_sync_token_exp = None
                     cls._close_quietly_sync(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"
@@ -336,25 +420,41 @@ class ConnectionManager:
 
         elif config.persistent:
             # HTTP with persistent connection
-            if cls._http_sync_connection is None or not cls._http_sync_connected:
+            existing = cls._http_sync_connection
+            needs_new = existing is None or not cls._http_sync_connected
+            if (
+                existing is not None
+                and not needs_new
+                and token_near_expiry(cls._http_sync_token_exp)
+            ):
+                try:
+                    tok = existing.signin(cls._get_credentials())
+                    cls._http_sync_token_exp = token_expiry(tok)
+                except Exception:
+                    cls._close_quietly_sync(existing)
+                    needs_new = True
+            if needs_new:
                 try:
                     cls._http_sync_connection = Surreal(config.get_url())
-                    cls._http_sync_connection.signin(cls._get_credentials())
+                    tok = cls._http_sync_connection.signin(cls._get_credentials())
+                    cls._http_sync_token_exp = token_expiry(tok)
                     ns, db = cls._get_ns_db()
                     cls._http_sync_connection.use(ns, db)
                     cls._http_sync_connected = True
                 except Exception as e:
                     cls._http_sync_connection = None
                     cls._http_sync_connected = False
+                    cls._http_sync_token_exp = None
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
             try:
                 yield cls._http_sync_connection
-            except SurrealDBQueryError as e:
+            except _AUTH_REJECTION_TYPES as e:
                 if is_auth_rejected_error(e):
                     conn = cls._http_sync_connection
                     cls._http_sync_connection = None
                     cls._http_sync_connected = False
+                    cls._http_sync_token_exp = None
                     cls._close_quietly_sync(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"

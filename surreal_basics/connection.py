@@ -209,6 +209,8 @@ class ConnectionManager:
                     tok = await existing.signin(cls._get_credentials())
                     cls._ws_async_token_exp = token_expiry(tok)
                 except Exception:
+                    # Refresh failed — close the stale client before rebuilding.
+                    await cls._close_quietly_async(existing)
                     needs_new = True
             if needs_new:
                 try:
@@ -275,6 +277,7 @@ class ConnectionManager:
                     tok = await existing.signin(cls._get_credentials())
                     cls._http_async_token_exp = token_expiry(tok)
                 except Exception:
+                    await cls._close_quietly_async(existing)
                     needs_new = True
             if needs_new:
                 try:
@@ -360,6 +363,8 @@ class ConnectionManager:
                     tok = existing.signin(cls._get_credentials())
                     cls._ws_sync_token_exp = token_expiry(tok)
                 except Exception:
+                    # Refresh failed — close the stale client before rebuilding.
+                    cls._close_quietly_sync(existing)
                     needs_new = True
             if needs_new:
                 try:
@@ -426,6 +431,7 @@ class ConnectionManager:
                     tok = existing.signin(cls._get_credentials())
                     cls._http_sync_token_exp = token_expiry(tok)
                 except Exception:
+                    cls._close_quietly_sync(existing)
                     needs_new = True
             if needs_new:
                 try:

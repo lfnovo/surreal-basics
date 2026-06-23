@@ -5,9 +5,13 @@ from typing import AsyncGenerator, Generator, Optional
 
 from surrealdb import AsyncSurreal, Surreal  # type: ignore
 
-from ._sdk import WS_DROPPED_EXCEPTIONS
+from ._sdk import WS_DROPPED_EXCEPTIONS, is_auth_rejected_error
 from .config import get_config
-from .exceptions import SurrealDBConnectionError, SurrealDBTransientError
+from .exceptions import (
+    SurrealDBConnectionError,
+    SurrealDBQueryError,
+    SurrealDBTransientError,
+)
 
 
 class ConnectionManager:
@@ -168,6 +172,16 @@ class ConnectionManager:
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
                 ) from e
+            except SurrealDBQueryError as e:
+                # Auth/IAM error on a still-open socket = the cached token was
+                # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
+                if is_auth_rejected_error(e):
+                    cls._ws_async_connection = None
+                    cls._ws_async_connected = False
+                    raise SurrealDBTransientError(
+                        f"Auth token rejected; reconnecting: {e}"
+                    ) from e
+                raise
 
         elif config.persistent:
             # HTTP with persistent connection
@@ -183,7 +197,16 @@ class ConnectionManager:
                     cls._http_async_connected = False
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
-            yield cls._http_async_connection
+            try:
+                yield cls._http_async_connection
+            except SurrealDBQueryError as e:
+                if is_auth_rejected_error(e):
+                    cls._http_async_connection = None
+                    cls._http_async_connected = False
+                    raise SurrealDBTransientError(
+                        f"Auth token rejected; reconnecting: {e}"
+                    ) from e
+                raise
 
         else:
             # HTTP: create new connection each time (stateless mode)
@@ -251,6 +274,16 @@ class ConnectionManager:
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
                 ) from e
+            except SurrealDBQueryError as e:
+                # Auth/IAM error on a still-open socket = the cached token was
+                # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
+                if is_auth_rejected_error(e):
+                    cls._ws_sync_connection = None
+                    cls._ws_sync_connected = False
+                    raise SurrealDBTransientError(
+                        f"Auth token rejected; reconnecting: {e}"
+                    ) from e
+                raise
 
         elif config.persistent:
             # HTTP with persistent connection
@@ -266,7 +299,16 @@ class ConnectionManager:
                     cls._http_sync_connected = False
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
-            yield cls._http_sync_connection
+            try:
+                yield cls._http_sync_connection
+            except SurrealDBQueryError as e:
+                if is_auth_rejected_error(e):
+                    cls._http_sync_connection = None
+                    cls._http_sync_connected = False
+                    raise SurrealDBTransientError(
+                        f"Auth token rejected; reconnecting: {e}"
+                    ) from e
+                raise
 
         else:
             # HTTP: create new connection each time (stateless mode)

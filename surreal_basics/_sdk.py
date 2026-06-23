@@ -75,3 +75,29 @@ def is_duplicate_error(e: BaseException) -> bool:
     """
     msg = str(e).lower()
     return "already exists" in msg or "already contains" in msg
+
+
+# Markers for a rejected/expired auth token on an otherwise-open connection
+# (e.g. SurrealDB Cloud's 60-minute JWT lapsing on a warm persistent socket).
+_AUTH_REJECTED_MARKERS = (
+    "not enough permissions",
+    "iam error",
+    "problem with authentication",
+    "token has expired",
+    "token is expired",
+    "invalid token",
+)
+
+
+def is_auth_rejected_error(e: BaseException) -> bool:
+    """True when an error looks like a rejected/expired authentication token.
+
+    A persistent connection signs in once and caches the token; against a
+    backend with a time-limited token, queries start failing with an IAM /
+    permission error once it lapses, *without* the socket dropping. Treating
+    that as "the singleton is dead" lets the connection be rebuilt with a fresh
+    signin. Note this cannot distinguish an expired token from a genuine
+    permission denial, so genuine denials are retried before surfacing.
+    """
+    msg = str(e).lower()
+    return any(m in msg for m in _AUTH_REJECTED_MARKERS)

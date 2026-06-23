@@ -4,6 +4,7 @@ import pytest
 from surrealdb.errors import ConnectionUnavailableError, SurrealError
 
 from surreal_basics._sdk import (
+    is_auth_rejected_error,
     is_duplicate_error,
     translate_errors,
 )
@@ -58,3 +59,20 @@ class TestIsDuplicateError:
 
     def test_ignores_unrelated(self):
         assert is_duplicate_error(Exception("some other error")) is False
+
+
+class TestIsAuthRejectedError:
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "IAM error: Not enough permissions to perform this action",
+            "There was a problem with authentication",
+            "The token has expired",
+            "Invalid token",
+        ],
+    )
+    def test_detects_auth_rejection(self, msg):
+        assert is_auth_rejected_error(Exception(msg)) is True
+
+    def test_ignores_unrelated(self):
+        assert is_auth_rejected_error(Exception("table does not exist")) is False

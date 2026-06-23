@@ -33,6 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set did not catch — the first call after a drop leaked a raw `KeyError`
   instead of reconnecting. `KeyError` is now treated as a WS-drop on the WS
   path, so the singleton is rebuilt and the operation retried transparently.
+- Persistent connections now self-heal an expired/rejected auth token (#14). A
+  `ws`/HTTP-persistent singleton signs in once and caches the token; against a
+  backend with a time-limited token (e.g. SurrealDB Cloud's 60-minute JWT),
+  queries began failing with `IAM error: Not enough permissions` once it lapsed,
+  *without* the socket dropping, and stayed wedged until process restart. Such
+  auth errors are now treated as "singleton is dead": the connection is rebuilt
+  with a fresh `signin()` and the operation retried transparently. (Genuine
+  permission denials are retried before surfacing, since they're textually
+  indistinguishable from an expired token.)
 
 ### Changed
 

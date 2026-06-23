@@ -37,6 +37,10 @@ Documentation = "https://github.com/lfnovo/surreal-basics/tree/main/docs"
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.5.0",
 ]
 
 [project.scripts]
@@ -51,3 +55,38 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["surreal_basics"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+# Pyflakes (F), import sorting (I), bugbear (B), and the pycodestyle subset that
+# the formatter does not own. Line length (E501) is left to the formatter.
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests that require a running SurrealDB instance",
+]
+
+[tool.coverage.run]
+source = ["surreal_basics"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+
+# The surrealdb SDK exposes `Surreal`/`AsyncSurreal` as factory functions rather
+# than classes, so annotating connection slots with them trips `valid-type`.
+# This is an SDK typing limitation, not a real bug — scope the suppression here.
+[[tool.mypy.overrides]]
+module = "surreal_basics.connection"
+disable_error_code = ["valid-type"]
+
+# RecordID.id may be bytes per the SDK; the str() coercion in parse_record_ids
+# is intentional, so silence the str-bytes-safe stylistic warning here.
+[[tool.mypy.overrides]]
+module = "surreal_basics.utils"
+disable_error_code = ["str-bytes-safe"]

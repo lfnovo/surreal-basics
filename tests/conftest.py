@@ -1,6 +1,10 @@
 """Pytest fixtures for surreal_basics tests."""
 
 import os
+import shutil
+import subprocess
+from pathlib import Path
+
 import pytest
 import pytest_asyncio
 
@@ -11,7 +15,6 @@ from surreal_basics import (
     reset_connections,
     reset_connections_async,
 )
-from surreal_basics.config import _config, SurrealConfig
 
 
 # Register custom markers
@@ -21,10 +24,45 @@ def pytest_configure(config):
 
 # Test configuration
 TEST_HOST = os.getenv("TEST_SURREAL_HOST", "localhost")
-TEST_PORT = int(os.getenv("TEST_SURREAL_PORT", "8018"))
+TEST_PORT = int(os.getenv("TEST_SURREAL_PORT", "8000"))
 TEST_NS = "teste"
 TEST_DB = "test_db"
 TEST_TABLE = "test_table"
+
+_COMPOSE_FILE = Path(__file__).resolve().parent.parent / "docker-compose.yml"
+
+
+@pytest.fixture(scope="session")
+def surrealdb_service():
+    """Start SurrealDB via docker compose for the integration suite.
+
+    Only the WS/HTTP fixtures depend on this, so it is started lazily — running
+    `pytest -m "not integration"` never touches Docker. The container is torn
+    down at the end of the session.
+
+    Set ``SBL_TEST_DOCKER=0`` to use an externally managed instance instead
+    (e.g. when pointing TEST_SURREAL_HOST/PORT at an existing server).
+    """
+    if os.getenv("SBL_TEST_DOCKER", "1") == "0":
+        yield
+        return
+
+    if shutil.which("docker") is None:
+        pytest.skip(
+            "docker not available; cannot start SurrealDB for integration tests"
+        )
+
+    subprocess.run(
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "up", "-d", "--wait"],
+        check=True,
+    )
+    try:
+        yield
+    finally:
+        subprocess.run(
+            ["docker", "compose", "-f", str(_COMPOSE_FILE), "down", "-v"],
+            check=False,
+        )
 
 
 @pytest.fixture
@@ -39,7 +77,7 @@ def reset_config():
 
 
 @pytest.fixture
-def surreal_config_ws():
+def surreal_config_ws(surrealdb_service):
     """Configure surreal_basics for WebSocket testing."""
     init(
         host=TEST_HOST,
@@ -54,7 +92,7 @@ def surreal_config_ws():
 
 
 @pytest.fixture
-def surreal_config_http():
+def surreal_config_http(surrealdb_service):
     """Configure surreal_basics for HTTP testing."""
     init(
         host=TEST_HOST,

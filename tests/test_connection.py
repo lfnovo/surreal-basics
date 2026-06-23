@@ -1,15 +1,12 @@
 """Tests for connection management."""
 
 import pytest
-import pytest_asyncio
 from websockets.exceptions import ConnectionClosedError
 
 from surreal_basics import (
     init,
     repo_query,
     repo_query_sync,
-    reset_connections,
-    reset_connections_async,
 )
 from surreal_basics.connection import ConnectionManager
 from surreal_basics.exceptions import SurrealDBTransientError
@@ -55,9 +52,9 @@ class TestConnectionIntegration:
 
     def test_ws_sync_connection_persistent(self, surreal_config_ws):
         """Test that WS sync connections are persistent (singleton)."""
-        with ConnectionManager.get_sync_connection() as conn1:
+        with ConnectionManager.get_sync_connection():
             pass
-        with ConnectionManager.get_sync_connection() as conn2:
+        with ConnectionManager.get_sync_connection():
             pass
         # Should be same connection object
         assert ConnectionManager._ws_sync_connection is not None
@@ -65,30 +62,34 @@ class TestConnectionIntegration:
     def test_http_sync_connection_persistent(self, surreal_config_http):
         """Test that HTTP sync connections are persistent when configured."""
         init(persistent=True)
-        with ConnectionManager.get_sync_connection() as conn1:
+        with ConnectionManager.get_sync_connection():
             pass
-        with ConnectionManager.get_sync_connection() as conn2:
+        with ConnectionManager.get_sync_connection():
             pass
         # Should be same connection object
         assert ConnectionManager._http_sync_connection is not None
 
     @pytest.mark.asyncio
-    async def test_ws_async_connection_persistent(self, surreal_config_ws, async_cleanup):
+    async def test_ws_async_connection_persistent(
+        self, surreal_config_ws, async_cleanup
+    ):
         """Test that WS async connections are persistent (singleton)."""
-        async with ConnectionManager.get_async_connection() as conn1:
+        async with ConnectionManager.get_async_connection():
             pass
-        async with ConnectionManager.get_async_connection() as conn2:
+        async with ConnectionManager.get_async_connection():
             pass
         # Should be same connection object
         assert ConnectionManager._ws_async_connection is not None
 
     @pytest.mark.asyncio
-    async def test_http_async_connection_persistent(self, surreal_config_http, async_cleanup):
+    async def test_http_async_connection_persistent(
+        self, surreal_config_http, async_cleanup
+    ):
         """Test that HTTP async connections are persistent when configured."""
         init(persistent=True)
-        async with ConnectionManager.get_async_connection() as conn1:
+        async with ConnectionManager.get_async_connection():
             pass
-        async with ConnectionManager.get_async_connection() as conn2:
+        async with ConnectionManager.get_async_connection():
             pass
         # Should be same connection object
         assert ConnectionManager._http_async_connection is not None
@@ -105,9 +106,9 @@ class TestMemoryConnection:
 
     def test_memory_sync_connection_persistent(self, surreal_config_memory):
         """Test that memory sync connections are persistent (singleton)."""
-        with ConnectionManager.get_sync_connection() as conn1:
+        with ConnectionManager.get_sync_connection():
             pass
-        with ConnectionManager.get_sync_connection() as conn2:
+        with ConnectionManager.get_sync_connection():
             pass
         assert ConnectionManager._embedded_sync_connection is not None
 
@@ -119,11 +120,13 @@ class TestMemoryConnection:
         assert ConnectionManager._embedded_async_connected is True
 
     @pytest.mark.asyncio
-    async def test_memory_async_connection_persistent(self, surreal_config_memory, async_cleanup):
+    async def test_memory_async_connection_persistent(
+        self, surreal_config_memory, async_cleanup
+    ):
         """Test that memory async connections are persistent (singleton)."""
-        async with ConnectionManager.get_async_connection() as conn1:
+        async with ConnectionManager.get_async_connection():
             pass
-        async with ConnectionManager.get_async_connection() as conn2:
+        async with ConnectionManager.get_async_connection():
             pass
         assert ConnectionManager._embedded_async_connection is not None
 

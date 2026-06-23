@@ -1,9 +1,9 @@
 """Tests for utility functions."""
 
 import pytest
-from unittest.mock import MagicMock
 
 from surreal_basics import ensure_record_id, parse_record_ids
+from surreal_basics.utils import validate_identifier
 
 
 class MockRecordID:
@@ -101,3 +101,40 @@ class TestEnsureRecordId:
             assert result is original
         except ImportError:
             pytest.skip("surrealdb SDK not installed")
+
+
+class TestValidateIdentifier:
+    """Tests for validate_identifier guard."""
+
+    @pytest.mark.parametrize(
+        "value",
+        ["user", "user:123", "user:abc_def", "graph:⟨complex-id⟩", "ns_table"],
+    )
+    def test_safe_identifiers_pass(self, value):
+        """Legitimate table/record identifiers pass through unchanged."""
+        assert validate_identifier(value, "record_id") == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "user:1; DROP TABLE user",
+            "user\n RETURN 1",
+            "user:1 -- comment",
+            "user/* */",
+            "user:1\x00",
+        ],
+    )
+    def test_unsafe_identifiers_raise(self, value):
+        """Statement separators and comment markers are rejected."""
+        with pytest.raises(ValueError):
+            validate_identifier(value, "record_id")
+
+    def test_record_id_instance_passes(self):
+        """RecordID instances are always considered safe."""
+        try:
+            from surrealdb import RecordID
+        except ImportError:
+            pytest.skip("surrealdb SDK not installed")
+
+        rid = RecordID("user", "123")
+        assert validate_identifier(rid, "record_id") is rid

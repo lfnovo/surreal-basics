@@ -11,7 +11,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-import surreal_basics
 from surreal_basics import (
     init,
     repo_create,
@@ -140,7 +139,9 @@ class LibraryBenchmark:
                 errors += 1
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("SELECT", protocol, "Sync", elapsed, len(created_ids), errors)
+            BenchmarkResult(
+                "SELECT", protocol, "Sync", elapsed, len(created_ids), errors
+            )
         )
 
         # UPDATE benchmark (using query since repo_update needs table+id)
@@ -156,7 +157,9 @@ class LibraryBenchmark:
                 errors += 1
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("UPDATE", protocol, "Sync", elapsed, len(created_ids), errors)
+            BenchmarkResult(
+                "UPDATE", protocol, "Sync", elapsed, len(created_ids), errors
+            )
         )
 
         # UPSERT benchmark
@@ -167,13 +170,24 @@ class LibraryBenchmark:
                 repo_upsert_sync(
                     self.config.table_name,
                     f"{self.config.table_name}:upsert_{i}",
-                    {"name": f"Upsert_User_{i}", "email": f"upsert_{i}@test.com", "age": 30},
+                    {
+                        "name": f"Upsert_User_{i}",
+                        "email": f"upsert_{i}@test.com",
+                        "age": 30,
+                    },
                 )
             except Exception:
                 errors += 1
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("UPSERT", protocol, "Sync", elapsed, self.config.operations_count, errors)
+            BenchmarkResult(
+                "UPSERT",
+                protocol,
+                "Sync",
+                elapsed,
+                self.config.operations_count,
+                errors,
+            )
         )
 
         # DELETE benchmark
@@ -186,7 +200,9 @@ class LibraryBenchmark:
                 errors += 1
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("DELETE", protocol, "Sync", elapsed, len(created_ids), errors)
+            BenchmarkResult(
+                "DELETE", protocol, "Sync", elapsed, len(created_ids), errors
+            )
         )
 
         # Final cleanup
@@ -197,7 +213,9 @@ class LibraryBenchmark:
 
         return results
 
-    async def run_async_benchmark(self, protocol: str, database: str) -> list[BenchmarkResult]:
+    async def run_async_benchmark(
+        self, protocol: str, database: str
+    ) -> list[BenchmarkResult]:
         """Run asynchronous benchmark using surreal_basics."""
         # Configure library
         mode = "ws" if protocol == "WS" else "http"
@@ -232,7 +250,9 @@ class LibraryBenchmark:
                 errors += 1
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("CREATE", protocol, "Async", elapsed, len(test_data), errors)
+            BenchmarkResult(
+                "CREATE", protocol, "Async", elapsed, len(test_data), errors
+            )
         )
 
         # SELECT benchmark (concurrent batches)
@@ -245,7 +265,9 @@ class LibraryBenchmark:
             errors += sum(1 for r in batch_results if isinstance(r, Exception))
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("SELECT", protocol, "Async", elapsed, len(created_ids), errors)
+            BenchmarkResult(
+                "SELECT", protocol, "Async", elapsed, len(created_ids), errors
+            )
         )
 
         # UPDATE benchmark (concurrent batches)
@@ -264,7 +286,9 @@ class LibraryBenchmark:
             errors += sum(1 for r in batch_results if isinstance(r, Exception))
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("UPDATE", protocol, "Async", elapsed, len(created_ids), errors)
+            BenchmarkResult(
+                "UPDATE", protocol, "Async", elapsed, len(created_ids), errors
+            )
         )
 
         # UPSERT benchmark (concurrent batches)
@@ -276,7 +300,11 @@ class LibraryBenchmark:
                 repo_upsert(
                     self.config.table_name,
                     f"{self.config.table_name}:upsert_{j}",
-                    {"name": f"Upsert_User_{j}", "email": f"upsert_{j}@test.com", "age": 30},
+                    {
+                        "name": f"Upsert_User_{j}",
+                        "email": f"upsert_{j}@test.com",
+                        "age": 30,
+                    },
                 )
                 for j in batch_range
             ]
@@ -284,7 +312,14 @@ class LibraryBenchmark:
             errors += sum(1 for r in batch_results if isinstance(r, Exception))
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("UPSERT", protocol, "Async", elapsed, self.config.operations_count, errors)
+            BenchmarkResult(
+                "UPSERT",
+                protocol,
+                "Async",
+                elapsed,
+                self.config.operations_count,
+                errors,
+            )
         )
 
         # DELETE benchmark (concurrent batches)
@@ -297,7 +332,9 @@ class LibraryBenchmark:
             errors += sum(1 for r in batch_results if isinstance(r, Exception))
         elapsed = time.perf_counter() - start
         results.append(
-            BenchmarkResult("DELETE", protocol, "Async", elapsed, len(created_ids), errors)
+            BenchmarkResult(
+                "DELETE", protocol, "Async", elapsed, len(created_ids), errors
+            )
         )
 
         # Final cleanup
@@ -309,11 +346,15 @@ class LibraryBenchmark:
         return results
 
 
-def print_scenario_results(results: list[BenchmarkResult], protocol: str, mode: str, database: str):
+def print_scenario_results(
+    results: list[BenchmarkResult], protocol: str, mode: str, database: str
+):
     """Print results for a single scenario."""
     print(f"\nProtocol: {protocol} | Mode: {mode} | Database: {database}")
     print("-" * 70)
-    print(f"{'Operation':<12} {'Count':>8} {'Time(s)':>10} {'Ops/s':>12} {'Errors':>8} {'Error Rate':>12}")
+    print(
+        f"{'Operation':<12} {'Count':>8} {'Time(s)':>10} {'Ops/s':>12} {'Errors':>8} {'Error Rate':>12}"
+    )
     print("-" * 70)
 
     for r in results:

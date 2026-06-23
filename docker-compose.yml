@@ -1,0 +1,20 @@
+# Local/CI SurrealDB for running the integration test suite.
+#
+# The test suite starts and stops this automatically (see tests/conftest.py),
+# so normally you just run `uv run pytest`. You can also drive it by hand:
+#
+#   docker compose up -d --wait   # start SurrealDB on localhost:8000
+#   docker compose down -v        # stop and remove
+#
+# Credentials and port match tests/conftest.py defaults (root/root, :8000).
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    command: start --user root --pass root --bind 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "/surreal", "is-ready", "--endpoint", "http://localhost:8000"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

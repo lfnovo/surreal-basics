@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Basic SurrealQL-injection guard for interpolated identifiers in
+  `repo_upsert`, `repo_update`, and `repo_relate` (sync and async). Table names
+  and record ids containing statement separators or comment markers now raise
+  `ValueError`. Full identifier parameterization is tracked in #10.
+- Configuration now fails fast: a non-integer `SURREAL_PORT` or an unsupported
+  `SURREAL_URL` scheme raises `ValueError` at config time instead of silently
+  defaulting.
+- Project tooling: ruff (lint + format), mypy, pre-commit, a `Makefile`,
+  `.env.example`, `docker-compose.yml`, `CONTRIBUTING.md`, and `SECURITY.md`.
+- The integration test suite now starts/stops SurrealDB via `docker compose`
+  automatically (override with `SBL_TEST_DOCKER=0`). CI gained lint/type-check
+  and integration jobs and now measures coverage.
+
+### Changed
+
+- Empty-string auth env vars (`SURREAL_PASS`/`PASSWORD`, `SURREAL_NS`/etc.) now
+  fall back to defaults, matching how an unset variable is treated.
+
 ## [0.3.2] - 2026-05-13
 
 ### Fixed

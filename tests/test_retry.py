@@ -1,7 +1,6 @@
 """Tests for retry mechanism."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from surreal_basics.exceptions import SurrealDBQueryError, SurrealDBTransientError
 from surreal_basics.retry import surreal_retry, surreal_retry_async

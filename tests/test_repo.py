@@ -176,6 +176,7 @@ class TestRepoAsync:
             {"in": "evil:hacker", "out": "evil:target"},
         )
 
+        assert len(result) == 1
         assert result[0]["in"] == user1["id"]
         assert result[0]["out"] == user2["id"]
 

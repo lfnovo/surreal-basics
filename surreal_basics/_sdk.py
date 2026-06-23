@@ -6,9 +6,12 @@ The surrealdb 2.x SDK raises typed exceptions (``surrealdb.errors.*``) from
 exception hierarchy and the detection of WebSocket-drop conditions.
 """
 
+import base64
+import json
+import time
 import uuid
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterator, Optional
 
 from surrealdb.errors import (  # type: ignore
     ConnectionUnavailableError,
@@ -16,6 +19,9 @@ from surrealdb.errors import (  # type: ignore
 )
 
 from .exceptions import SurrealDBQueryError, SurrealDBTransientError
+
+# Refresh a persistent connection's token this many seconds before it expires.
+_TOKEN_REFRESH_MARGIN_SECONDS = 60
 
 try:
     from websockets.exceptions import ConnectionClosed as _WSConnectionClosed
@@ -118,3 +124,33 @@ def is_auth_rejected_error(e: BaseException) -> bool:
     """
     msg = str(e).lower()
     return any(m in msg for m in _AUTH_REJECTED_MARKERS)
+
+
+def token_expiry(signin_result: Any) -> Optional[float]:
+    """Best-effort extract of a JWT ``exp`` (epoch seconds) from a signin result.
+
+    The surrealdb 2.x ``signin()`` returns a ``Tokens`` object whose ``access``
+    field holds the JWT; some setups return the token as a plain string. Returns
+    ``None`` when the token isn't a decodable JWT (e.g. non-JWT auth), in which
+    case proactive refresh is simply skipped for that connection.
+    """
+    tok = getattr(signin_result, "access", None)
+    if tok is None and isinstance(signin_result, str):
+        tok = signin_result
+    if not isinstance(tok, str) or tok.count(".") != 2:
+        return None
+    try:
+        payload = tok.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        exp = claims.get("exp")
+        return float(exp) if exp is not None else None
+    except Exception:
+        return None
+
+
+def token_near_expiry(exp: Optional[float]) -> bool:
+    """True when a known token expiry is within the refresh margin (or passed)."""
+    if exp is None:
+        return False
+    return time.time() >= exp - _TOKEN_REFRESH_MARGIN_SECONDS

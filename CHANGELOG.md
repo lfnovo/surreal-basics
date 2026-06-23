@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The expired-token self-heal from 0.4.0 now also covers callers that use the
+  connection **directly** (`async with get_async_connection() as db:
+  await db.query(...)`), not just the `repo_*` helpers (#15). Two changes:
+  - **Proactive refresh:** persistent `ws`/HTTP connections track the JWT `exp`
+    and re-`signin()` in place before the token lapses, so every checkout hands
+    out a valid-auth connection regardless of how it's used.
+  - **Reactive fallback:** the auth-rejection guard now also catches the *raw*
+    `surrealdb` error a direct caller sees (previously only the translated
+    `SurrealDBQueryError` from the `repo_*` path was caught), so the singleton
+    is reset and the next call reconnects even without the retry decorator.
+
 ## [0.4.0] - 2026-06-23
 
 ### Added

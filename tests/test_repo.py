@@ -232,3 +232,50 @@ class TestRepoAsync:
         assert not ConnectionManager._ws_async_connected
         result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
         assert isinstance(result, list)
+
+    async def test_ws_direct_raw_auth_error_reconnects(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        """Direct conn callers raise the *raw* SDK error (no translate_errors).
+        The persistent path must still treat a raw auth error as a dead singleton
+        (#15)."""
+        from surrealdb.errors import SurrealError
+
+        from surreal_basics import get_async_connection
+        from surreal_basics.connection import ConnectionManager
+        from surreal_basics.exceptions import SurrealDBTransientError
+
+        await repo_create(TEST_TABLE, {"name": "seed"})
+        assert ConnectionManager._ws_async_connected
+
+        with pytest.raises(SurrealDBTransientError):
+            async with get_async_connection():
+                raise SurrealError(
+                    "IAM error: Not enough permissions to perform this action"
+                )
+
+        assert not ConnectionManager._ws_async_connected
+        result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
+        assert isinstance(result, list)
+
+    async def test_ws_proactive_token_refresh(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        """When the token is near expiry, the next checkout refreshes it in place
+        so even a direct conn.query() gets a valid-auth connection (#15)."""
+        import time
+
+        from surreal_basics import get_async_connection
+        from surreal_basics.connection import ConnectionManager
+
+        await repo_create(TEST_TABLE, {"name": "seed"})
+        conn_before = id(ConnectionManager._ws_async_connection)
+
+        # Pretend the cached token just lapsed; the next checkout must refresh.
+        ConnectionManager._ws_async_token_exp = time.time() - 1
+        async with get_async_connection() as db:
+            result = await db.query(f"SELECT * FROM {TEST_TABLE}")
+
+        assert isinstance(result, list)
+        # Refreshed in place on the same warm socket (no full rebuild needed).
+        assert id(ConnectionManager._ws_async_connection) == conn_before

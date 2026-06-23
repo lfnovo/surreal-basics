@@ -23,7 +23,8 @@ is available, a new release will be published and the advisory disclosed.
 
 surreal-basics is a connection/query abstraction over the official SurrealDB SDK.
 Note that table names and record identifiers passed to `repo_upsert`,
-`repo_update`, and `repo_relate` are interpolated into SurrealQL. Treat them as
-trusted input and parameterize user-supplied **values** via the `vars` argument
-to `repo_query`. A basic guard rejects obvious injection markers, but full
+`repo_update`, and `repo_relate` — and their `_sync` counterparts
+(`repo_upsert_sync`, `repo_update_sync`, `repo_relate_sync`) — are interpolated
+into SurrealQL. Treat them as trusted input and parameterize user-supplied
+**values** via the `vars` argument to `repo_query` / `repo_query_sync`. A basic guard rejects obvious injection markers, but full
 parameterization of identifiers is tracked as a hardening task.

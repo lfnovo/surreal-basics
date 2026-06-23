@@ -16,11 +16,8 @@ from surreal_basics import (
     reset_connections_async,
 )
 
-
-# Register custom markers
-def pytest_configure(config):
-    config.addinivalue_line("markers", "integration: mark test as integration test")
-
+# The `integration` marker is registered in pyproject.toml
+# ([tool.pytest.ini_options] markers).
 
 # Test configuration
 TEST_HOST = os.getenv("TEST_SURREAL_HOST", "localhost")

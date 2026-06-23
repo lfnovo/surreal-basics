@@ -22,9 +22,10 @@ SURREAL_PATH=./surreal.db    # File path for embedded mode
 ### Single URL
 
 Alternatively, set `SURREAL_URL` and the scheme selects the mode. When set, the
-URL is **authoritative** — its host, port, and TLS take precedence over the
+URL is **authoritative** for host, port, and mode — they take precedence over the
 discrete variables above (so a local `SURREAL_PORT` can't leak into a cloud
-connection).
+connection). TLS is *derived* from the scheme but can still be overridden by
+`SURREAL_TLS` (see [TLS](#tls)).
 
 ```bash
 SURREAL_URL=ws://localhost:8000/rpc      # WebSocket
@@ -32,12 +33,16 @@ SURREAL_URL=wss://tenant.surreal.cloud   # WebSocket + TLS (port defaults to 443
 SURREAL_URL=http://localhost:8000        # HTTP
 SURREAL_URL=https://tenant.surreal.cloud # HTTP + TLS
 SURREAL_URL=mem://                       # In-memory
-SURREAL_URL=file://./surreal.db          # Embedded (also: surrealkv://)
+SURREAL_URL=file:///data/surreal.db      # Embedded, absolute path (also: surrealkv://)
 ```
 
 An unsupported scheme raises a `ValueError` at config time rather than silently
-falling back. `SURREAL_TLS` can still override the scheme-derived TLS flag (e.g.
-upgrade a `ws://` URL to `wss://`).
+falling back.
+
+> **Embedded paths:** a `file://` URL is parsed as a URL, so `file://./surreal.db`
+> resolves to the absolute `/surreal.db`, **not** a relative `./surreal.db`. For a
+> relative path use `SURREAL_PATH=./surreal.db` (or `init(path="./surreal.db")`)
+> instead of encoding it in `SURREAL_URL`.
 
 ## Programmatic Configuration
 

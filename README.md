@@ -27,6 +27,16 @@ Or with uv:
 uv add surreal-basics
 ```
 
+### Compatibility
+
+Built on the official `surrealdb` 2.x SDK, which supports **SurrealDB servers
+v2.0.0 through v3.x**. Requires Python 3.11+.
+
+> **SurrealDB 3.x note:** v3 is stricter than v2 — reading from a table that was
+> never defined (e.g. `SELECT * FROM thing` before any record exists) raises an
+> error instead of returning an empty list. Define the table or insert a record
+> first. surreal-basics surfaces this difference rather than masking it.
+
 ## Quick Start
 
 ### Configuration via environment variables

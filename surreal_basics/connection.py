@@ -5,19 +5,9 @@ from typing import AsyncGenerator, Generator, Optional
 
 from surrealdb import AsyncSurreal, Surreal  # type: ignore
 
+from ._sdk import WS_DROPPED_EXCEPTIONS
 from .config import get_config
 from .exceptions import SurrealDBConnectionError, SurrealDBTransientError
-
-try:
-    from websockets.exceptions import ConnectionClosed as _WSConnectionClosed
-except ImportError:  # pragma: no cover - websockets ships with surrealdb
-
-    class _WSConnectionClosed(Exception):  # type: ignore[no-redef]
-        """Fallback when websockets isn't importable; never matches a real drop."""
-
-
-# Exceptions that signal the persistent WS singleton is dead and must be rebuilt.
-_WS_DROPPED_EXCEPTIONS: tuple[type[BaseException], ...] = (_WSConnectionClosed,)
 
 
 class ConnectionManager:
@@ -169,7 +159,7 @@ class ConnectionManager:
 
             try:
                 yield cls._ws_async_connection
-            except _WS_DROPPED_EXCEPTIONS as e:
+            except WS_DROPPED_EXCEPTIONS as e:
                 # Underlying socket died (idle timeout, network drop, server close).
                 # Drop the singleton so the next attempt rebuilds it, and surface as
                 # a transient error so surreal_retry_async retries the operation.
@@ -252,7 +242,7 @@ class ConnectionManager:
 
             try:
                 yield cls._ws_sync_connection
-            except _WS_DROPPED_EXCEPTIONS as e:
+            except WS_DROPPED_EXCEPTIONS as e:
                 # Underlying socket died (idle timeout, network drop, server close).
                 # Drop the singleton so the next attempt rebuilds it, and surface as
                 # a transient error so surreal_retry retries the operation.

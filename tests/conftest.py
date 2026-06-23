@@ -19,9 +19,21 @@ from surreal_basics import (
 # The `integration` marker is registered in pyproject.toml
 # ([tool.pytest.ini_options] markers).
 
+# Which SurrealDB server to test against. The surrealdb 2.x SDK supports both
+# 2.x and 3.x servers; CI runs the suite against each. Maps to a docker-compose
+# service and its published host port.
+_SURREAL_VERSIONS = {"v2": ("surrealdb-v2", 8000), "v3": ("surrealdb-v3", 8001)}
+_SURREAL_VERSION = os.getenv("SBL_TEST_SURREAL_VERSION", "v2")
+if _SURREAL_VERSION not in _SURREAL_VERSIONS:
+    raise ValueError(
+        f"Unknown SBL_TEST_SURREAL_VERSION {_SURREAL_VERSION!r}; "
+        f"expected one of {sorted(_SURREAL_VERSIONS)}"
+    )
+_SERVICE, _DEFAULT_PORT = _SURREAL_VERSIONS[_SURREAL_VERSION]
+
 # Test configuration
 TEST_HOST = os.getenv("TEST_SURREAL_HOST", "localhost")
-TEST_PORT = int(os.getenv("TEST_SURREAL_PORT", "8000"))
+TEST_PORT = int(os.getenv("TEST_SURREAL_PORT", str(_DEFAULT_PORT)))
 TEST_NS = "teste"
 TEST_DB = "test_db"
 TEST_TABLE = "test_table"
@@ -33,9 +45,11 @@ _COMPOSE_FILE = Path(__file__).resolve().parent.parent / "docker-compose.yml"
 def surrealdb_service():
     """Start SurrealDB via docker compose for the integration suite.
 
-    Only the WS/HTTP fixtures depend on this, so it is started lazily — running
-    `pytest -m "not integration"` never touches Docker. The container is torn
-    down at the end of the session.
+    Brings up only the service for the version under test
+    (``SBL_TEST_SURREAL_VERSION``, default ``v2``). Only the WS/HTTP fixtures
+    depend on this, so it is started lazily — running `pytest -m "not
+    integration"` never touches Docker. The container is torn down at the end of
+    the session.
 
     Set ``SBL_TEST_DOCKER=0`` to use an externally managed instance instead
     (e.g. when pointing TEST_SURREAL_HOST/PORT at an existing server).
@@ -50,7 +64,7 @@ def surrealdb_service():
         )
 
     subprocess.run(
-        ["docker", "compose", "-f", str(_COMPOSE_FILE), "up", "-d", "--wait"],
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "up", "-d", "--wait", _SERVICE],
         check=True,
     )
     try:

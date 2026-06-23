@@ -1,0 +1,69 @@
+"""Internal glue bridging the surrealdb SDK error model to ours.
+
+The surrealdb 2.x SDK raises typed exceptions (``surrealdb.errors.*``) from
+``query``/``insert``/``merge``/etc. instead of returning error strings inline as
+1.x did. This module centralizes the translation to surreal_basics' own
+exception hierarchy and the detection of WebSocket-drop conditions.
+"""
+
+from contextlib import contextmanager
+from typing import Iterator
+
+from surrealdb.errors import (  # type: ignore
+    ConnectionUnavailableError,
+    SurrealError,
+)
+
+from .exceptions import SurrealDBQueryError, SurrealDBTransientError
+
+try:
+    from websockets.exceptions import ConnectionClosed as _WSConnectionClosed
+except ImportError:  # pragma: no cover - websockets ships with surrealdb
+
+    class _WSConnectionClosed(Exception):  # type: ignore[no-redef]
+        """Fallback when websockets isn't importable; never matches a real drop."""
+
+
+# Exceptions that signal the persistent WS singleton is dead and must be rebuilt.
+# The ConnectionManager catches these to reset the singleton and surface them as
+# transient errors so the retry layer reconnects transparently.
+WS_DROPPED_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    _WSConnectionClosed,
+    ConnectionUnavailableError,
+)
+
+# Substring SurrealDB uses to flag a transaction/lock conflict as retryable.
+_RETRYABLE_MARKER = "can be retried"
+
+
+@contextmanager
+def translate_errors() -> Iterator[None]:
+    """Map surrealdb SDK errors raised inside the block to our exception types.
+
+    - WebSocket-drop errors are re-raised untouched so the ConnectionManager can
+      reset the singleton (enabling reconnect).
+    - A retryable lock/transaction conflict becomes ``SurrealDBTransientError``.
+    - Any other server/query error becomes ``SurrealDBQueryError``.
+
+    Works in both sync and async call sites — wrap a block containing an
+    ``await`` and the translation still applies.
+    """
+    try:
+        yield
+    except WS_DROPPED_EXCEPTIONS:
+        raise
+    except SurrealError as e:
+        msg = str(e)
+        if _RETRYABLE_MARKER in msg.lower():
+            raise SurrealDBTransientError(msg) from e
+        raise SurrealDBQueryError(msg) from e
+
+
+def is_duplicate_error(e: BaseException) -> bool:
+    """True when an exception represents a duplicate-record/insert conflict.
+
+    Covers both the 2.x message ("already exists") and the legacy 1.x wording
+    ("already contains").
+    """
+    msg = str(e).lower()
+    return "already exists" in msg or "already contains" in msg

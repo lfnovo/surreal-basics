@@ -3,10 +3,11 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
-from surrealdb import RecordID  # type: ignore
+from surrealdb import RecordID, Table  # type: ignore
 
+from ._sdk import is_duplicate_error, translate_errors
 from .connection import get_sync_connection
-from .exceptions import SurrealDBQueryError, SurrealDBTransientError
+from .exceptions import SurrealDBQueryError
 from .retry import surreal_retry
 from .utils import ensure_record_id, parse_record_ids, validate_identifier
 
@@ -16,7 +17,7 @@ def repo_query_sync(
     query_str: str, vars: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """
-    Execute a SurrealQL query and return the results (sync version).
+    Execute a SurrealQL query and return the results.
 
     Automatically retries on transient errors (concurrency locks) and timeouts.
 
@@ -32,19 +33,15 @@ def repo_query_sync(
         SurrealDBQueryError: For non-retryable query errors
     """
     with get_sync_connection() as conn:
-        result = parse_record_ids(conn.query(query_str, vars))
-        if isinstance(result, str):
-            if "can be retried" in result:
-                raise SurrealDBTransientError(result)
-            else:
-                raise SurrealDBQueryError(result)
-        return result
+        with translate_errors():
+            result = conn.query(query_str, vars)
+        return parse_record_ids(result)
 
 
 @surreal_retry
 def repo_create_sync(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Create a new record in the specified table (sync version).
+    Create a new record in the specified table.
 
     Automatically adds 'created' and 'updated' timestamps.
 
@@ -56,12 +53,12 @@ def repo_create_sync(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
         The created record
     """
     data = data.copy()
-
     data["created"] = datetime.now(timezone.utc)
     data["updated"] = datetime.now(timezone.utc)
 
     with get_sync_connection() as conn:
-        result = conn.insert(table, data)
+        with translate_errors():
+            result = conn.insert(table, data)
         return parse_record_ids(result)
 
 
@@ -73,7 +70,7 @@ def repo_upsert_sync(
     add_timestamp: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    Create or update a record in the specified table (sync version).
+    Create or update a record in the specified table (merge).
 
     Args:
         table: The table name
@@ -89,18 +86,25 @@ def repo_upsert_sync(
     if add_timestamp:
         data["updated"] = datetime.now(timezone.utc)
 
-    target = record_id if record_id else table
-    validate_identifier(target, "record_id" if record_id else "table")
-    query = f"UPSERT {target} MERGE $data;"
-    return repo_query_sync(query, {"data": data})
+    # Bind the target as a query variable so the identifier can never alter the
+    # query structure. No single SDK method offers UPSERT + MERGE semantics, so
+    # this stays a parameterized query rather than a native call.
+    if record_id:
+        validate_identifier(record_id, "record_id")
+        what: Union[RecordID, Table] = ensure_record_id(record_id)
+    else:
+        validate_identifier(table, "table")
+        what = Table(table)
+
+    return repo_query_sync("UPSERT $what MERGE $data;", {"what": what, "data": data})
 
 
 @surreal_retry
 def repo_update_sync(
-    table: str, record_id: str, data: Dict[str, Any]
+    table: str, record_id: Union[str, RecordID], data: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
     """
-    Update an existing record by table and id (sync version).
+    Update an existing record by table and id.
 
     Automatically updates the 'updated' timestamp.
 
@@ -112,25 +116,32 @@ def repo_update_sync(
     Returns:
         List containing the updated record
     """
+    # If id already contains the table name, use it as is
     if isinstance(record_id, RecordID) or (
         ":" in str(record_id) and str(record_id).startswith(f"{table}:")
     ):
-        full_id = record_id
+        full_id: Union[str, RecordID] = record_id
     else:
         full_id = f"{table}:{record_id}"
 
-    validate_identifier(full_id, "record_id")
+    if isinstance(full_id, str):
+        validate_identifier(full_id, "record_id")
+    rid = ensure_record_id(full_id)
+
     data = data.copy()
     data["updated"] = datetime.now(timezone.utc)
-    query = f"UPDATE {full_id} MERGE $data;"
-    result = repo_query_sync(query, {"data": data})
-    return parse_record_ids(result)
+
+    with get_sync_connection() as conn:
+        with translate_errors():
+            result = conn.merge(rid, data)
+    parsed = parse_record_ids(result)
+    return [parsed] if isinstance(parsed, dict) else parsed
 
 
 @surreal_retry
 def repo_delete_sync(record_id: Union[str, RecordID]) -> Any:
     """
-    Delete a record by record id (sync version).
+    Delete a record by record id.
 
     Args:
         record_id: The full record ID (e.g., "user:123")
@@ -139,7 +150,8 @@ def repo_delete_sync(record_id: Union[str, RecordID]) -> Any:
         The deleted record or None
     """
     with get_sync_connection() as conn:
-        return conn.delete(record_id)
+        with translate_errors():
+            return conn.delete(record_id)
 
 
 @surreal_retry
@@ -147,7 +159,7 @@ def repo_insert_sync(
     table: str, data: List[Dict[str, Any]], ignore_duplicates: bool = False
 ) -> List[Dict[str, Any]]:
     """
-    Bulk insert records into a table (sync version).
+    Bulk insert records into a table.
 
     Args:
         table: The table name
@@ -159,10 +171,11 @@ def repo_insert_sync(
     """
     with get_sync_connection() as conn:
         try:
-            result = conn.insert(table, data)
+            with translate_errors():
+                result = conn.insert(table, data)
             return parse_record_ids(result)
-        except Exception as e:
-            if ignore_duplicates and "already contains" in str(e):
+        except SurrealDBQueryError as e:
+            if ignore_duplicates and is_duplicate_error(e):
                 return []
             raise
 
@@ -175,7 +188,7 @@ def repo_relate_sync(
     data: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Create a relationship between two records (sync version).
+    Create a relationship between two records.
 
     Args:
         source: The source record ID
@@ -186,13 +199,23 @@ def repo_relate_sync(
     Returns:
         List containing the created relationship record
     """
-    if data is None:
-        data = {}
+    data = dict(data) if data else {}
     validate_identifier(source, "source")
     validate_identifier(relationship, "relationship")
     validate_identifier(target, "target")
-    query = f"RELATE {source}->{relationship}->{target} CONTENT $data;"
-    return repo_query_sync(query, {"data": data})
+
+    # in/out come last so a stray "in"/"out" in data can't override the
+    # validated source/target endpoints.
+    payload = {
+        **data,
+        "in": ensure_record_id(source),
+        "out": ensure_record_id(target),
+    }
+    with get_sync_connection() as conn:
+        with translate_errors():
+            result = conn.insert_relation(relationship, payload)
+    parsed = parse_record_ids(result)
+    return [parsed] if isinstance(parsed, dict) else parsed
 
 
 @surreal_retry
@@ -200,7 +223,7 @@ def repo_select_sync(
     table_or_id: Union[str, RecordID],
 ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
     """
-    Select records from a table or a specific record by ID (sync version).
+    Select records from a table or a specific record by ID.
 
     Args:
         table_or_id: Table name (selects all) or record ID (selects one)
@@ -216,7 +239,8 @@ def repo_select_sync(
         table_or_id = ensure_record_id(table_or_id)
 
     with get_sync_connection() as conn:
-        result = conn.select(table_or_id)
+        with translate_errors():
+            result = conn.select(table_or_id)
         parsed = parse_record_ids(result)
         if is_single and isinstance(parsed, list) and len(parsed) == 1:
             return parsed[0]

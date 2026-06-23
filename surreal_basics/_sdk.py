@@ -6,6 +6,7 @@ The surrealdb 2.x SDK raises typed exceptions (``surrealdb.errors.*``) from
 exception hierarchy and the detection of WebSocket-drop conditions.
 """
 
+import uuid
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -28,17 +29,33 @@ except ImportError:  # pragma: no cover - websockets ships with surrealdb
 # The ConnectionManager catches these (only on the WS path) to reset the
 # singleton and surface them as transient errors so the retry layer reconnects
 # transparently.
-#
-# KeyError is included because the surrealdb 2.x async/blocking WS clients raise
-# a bare KeyError(<request-uuid>) when the socket drops mid-request: the receive
-# loop clears the pending-future map on close, then the in-flight `_send` hits
-# `del self.qry[query_id]` on the now-missing key. It is the 2.x dead-socket
-# symptom, not a logic error.
 WS_DROPPED_EXCEPTIONS: tuple[type[BaseException], ...] = (
     _WSConnectionClosed,
     ConnectionUnavailableError,
-    KeyError,
 )
+
+
+def is_dropped_request_keyerror(e: BaseException) -> bool:
+    """True for the surrealdb 2.x WS dead-socket symptom.
+
+    When the socket drops mid-request the WS client raises a bare
+    ``KeyError(<request-uuid>)``: the receive loop clears the pending-future map
+    on close, then the in-flight ``_send`` hits ``del self.qry[query_id]`` on the
+    now-missing key. Request ids are ``str(uuid.uuid4())``, so we only treat a
+    KeyError whose key parses as a UUID as a drop — a non-SDK KeyError in the
+    same code block (e.g. a real ``KeyError('name')``) is left untouched.
+    """
+    if not isinstance(e, KeyError) or not e.args:
+        return False
+    key = e.args[0]
+    if not isinstance(key, str):
+        return False
+    try:
+        uuid.UUID(key)
+        return True
+    except ValueError:
+        return False
+
 
 # Substring SurrealDB uses to flag a transaction/lock conflict as retryable.
 _RETRYABLE_MARKER = "can be retried"

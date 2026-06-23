@@ -5,7 +5,11 @@ from typing import AsyncGenerator, Generator, Optional
 
 from surrealdb import AsyncSurreal, Surreal  # type: ignore
 
-from ._sdk import WS_DROPPED_EXCEPTIONS, is_auth_rejected_error
+from ._sdk import (
+    WS_DROPPED_EXCEPTIONS,
+    is_auth_rejected_error,
+    is_dropped_request_keyerror,
+)
 from .config import get_config
 from .exceptions import (
     SurrealDBConnectionError,
@@ -191,6 +195,16 @@ class ConnectionManager:
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
                 ) from e
+            except KeyError as e:
+                # surrealdb 2.x dead-socket symptom: KeyError(<request-uuid>).
+                # Non-UUID KeyErrors are real logic errors and re-raised as-is.
+                if not is_dropped_request_keyerror(e):
+                    raise
+                cls._ws_async_connection = None
+                cls._ws_async_connected = False
+                raise SurrealDBTransientError(
+                    f"WebSocket connection dropped (request {e})"
+                ) from e
             except SurrealDBQueryError as e:
                 # Auth/IAM error on a still-open socket = the cached token was
                 # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
@@ -296,6 +310,16 @@ class ConnectionManager:
                 cls._ws_sync_connected = False
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
+                ) from e
+            except KeyError as e:
+                # surrealdb 2.x dead-socket symptom: KeyError(<request-uuid>).
+                # Non-UUID KeyErrors are real logic errors and re-raised as-is.
+                if not is_dropped_request_keyerror(e):
+                    raise
+                cls._ws_sync_connection = None
+                cls._ws_sync_connected = False
+                raise SurrealDBTransientError(
+                    f"WebSocket connection dropped (request {e})"
                 ) from e
             except SurrealDBQueryError as e:
                 # Auth/IAM error on a still-open socket = the cached token was

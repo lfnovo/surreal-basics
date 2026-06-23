@@ -9,23 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Basic SurrealQL-injection guard for interpolated identifiers in
-  `repo_upsert`, `repo_update`, and `repo_relate` (sync and async). Table names
-  and record ids containing statement separators or comment markers now raise
-  `ValueError`. Full identifier parameterization is tracked in #10.
+- Record/table identifiers in `repo_upsert`, `repo_update`, and `repo_relate`
+  (sync and async) are now **bound as query parameters / `RecordID` objects**
+  instead of being interpolated into SurrealQL, closing the injection surface
+  (#10). `repo_update`/`repo_relate` use the SDK's native `merge` /
+  `insert_relation`; `repo_upsert` uses a parameterized `UPSERT $what MERGE`.
+  A lightweight `validate_identifier` guard remains as defense-in-depth.
 - Configuration now fails fast: a non-integer `SURREAL_PORT` or an unsupported
   `SURREAL_URL` scheme raises `ValueError` at config time instead of silently
   defaulting.
 - Project tooling: ruff (lint + format), mypy, pre-commit, a `Makefile`,
   `.env.example`, `docker-compose.yml`, `CONTRIBUTING.md`, and `SECURITY.md`.
 - The integration test suite now starts/stops SurrealDB via `docker compose`
-  automatically (override with `SBL_TEST_DOCKER=0`). CI gained lint/type-check
-  and integration jobs and now measures coverage.
+  automatically (override with `SBL_TEST_DOCKER=0`) and runs against both a
+  **SurrealDB v2 and v3** server (`SBL_TEST_SURREAL_VERSION`). CI gained
+  lint/type-check and a v2/v3 integration matrix, and measures coverage.
 
 ### Changed
 
+- **Upgraded to the `surrealdb` 2.x SDK** (`surrealdb>=2.0.0`), which supports
+  SurrealDB servers v2.0.0–v3.x. The 2.x SDK raises typed exceptions instead of
+  returning error strings inline; surreal-basics now translates those into its
+  own `SurrealDBTransientError` / `SurrealDBQueryError` so the public exception
+  contract and retry behavior are unchanged.
 - Empty-string auth env vars (`SURREAL_PASS`/`PASSWORD`, `SURREAL_NS`/etc.) now
   fall back to defaults, matching how an unset variable is treated.
+
+### Removed
+
+- The vestigial `pydantic-core<2.44` constraint — the 2.x SDK no longer pulls in
+  full `pydantic`.
+
+### Notes
+
+- **SurrealDB v3 behavior:** v3 is stricter than v2 — reading from a table that
+  was never defined raises an error instead of returning an empty list.
+  surreal-basics surfaces this rather than masking it; define the table or
+  insert a record before selecting.
 
 ## [0.3.2] - 2026-05-13
 

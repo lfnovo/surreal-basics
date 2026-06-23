@@ -3,10 +3,11 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
-from surrealdb import RecordID  # type: ignore
+from surrealdb import RecordID, Table  # type: ignore
 
+from ._sdk import is_duplicate_error, translate_errors
 from .connection import get_async_connection
-from .exceptions import SurrealDBQueryError, SurrealDBTransientError
+from .exceptions import SurrealDBQueryError
 from .retry import surreal_retry_async
 from .utils import ensure_record_id, parse_record_ids, validate_identifier
 
@@ -32,13 +33,9 @@ async def repo_query(
         SurrealDBQueryError: For non-retryable query errors
     """
     async with get_async_connection() as conn:
-        result = parse_record_ids(await conn.query(query_str, vars))
-        if isinstance(result, str):
-            if "can be retried" in result:
-                raise SurrealDBTransientError(result)
-            else:
-                raise SurrealDBQueryError(result)
-        return result
+        with translate_errors():
+            result = await conn.query(query_str, vars)
+        return parse_record_ids(result)
 
 
 @surreal_retry_async
@@ -60,7 +57,8 @@ async def repo_create(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     data["updated"] = datetime.now(timezone.utc)
 
     async with get_async_connection() as conn:
-        result = await conn.insert(table, data)
+        with translate_errors():
+            result = await conn.insert(table, data)
         return parse_record_ids(result)
 
 
@@ -88,15 +86,22 @@ async def repo_upsert(
     if add_timestamp:
         data["updated"] = datetime.now(timezone.utc)
 
-    target = record_id if record_id else table
-    validate_identifier(target, "record_id" if record_id else "table")
-    query = f"UPSERT {target} MERGE $data;"
-    return await repo_query(query, {"data": data})
+    # Bind the target as a query variable so the identifier can never alter the
+    # query structure. No single SDK method offers UPSERT + MERGE semantics, so
+    # this stays a parameterized query rather than a native call.
+    if record_id:
+        validate_identifier(record_id, "record_id")
+        what: Union[RecordID, Table] = ensure_record_id(record_id)
+    else:
+        validate_identifier(table, "table")
+        what = Table(table)
+
+    return await repo_query("UPSERT $what MERGE $data;", {"what": what, "data": data})
 
 
 @surreal_retry_async
 async def repo_update(
-    table: str, record_id: str, data: Dict[str, Any]
+    table: str, record_id: Union[str, RecordID], data: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
     """
     Update an existing record by table and id.
@@ -115,16 +120,22 @@ async def repo_update(
     if isinstance(record_id, RecordID) or (
         ":" in str(record_id) and str(record_id).startswith(f"{table}:")
     ):
-        full_id = record_id
+        full_id: Union[str, RecordID] = record_id
     else:
         full_id = f"{table}:{record_id}"
 
-    validate_identifier(full_id, "record_id")
+    if isinstance(full_id, str):
+        validate_identifier(full_id, "record_id")
+    rid = ensure_record_id(full_id)
+
     data = data.copy()
     data["updated"] = datetime.now(timezone.utc)
-    query = f"UPDATE {full_id} MERGE $data;"
-    result = await repo_query(query, {"data": data})
-    return parse_record_ids(result)
+
+    async with get_async_connection() as conn:
+        with translate_errors():
+            result = await conn.merge(rid, data)
+    parsed = parse_record_ids(result)
+    return [parsed] if isinstance(parsed, dict) else parsed
 
 
 @surreal_retry_async
@@ -139,7 +150,8 @@ async def repo_delete(record_id: Union[str, RecordID]) -> Any:
         The deleted record or None
     """
     async with get_async_connection() as conn:
-        return await conn.delete(record_id)
+        with translate_errors():
+            return await conn.delete(record_id)
 
 
 @surreal_retry_async
@@ -159,10 +171,11 @@ async def repo_insert(
     """
     async with get_async_connection() as conn:
         try:
-            result = await conn.insert(table, data)
+            with translate_errors():
+                result = await conn.insert(table, data)
             return parse_record_ids(result)
-        except Exception as e:
-            if ignore_duplicates and "already contains" in str(e):
+        except SurrealDBQueryError as e:
+            if ignore_duplicates and is_duplicate_error(e):
                 return []
             raise
 
@@ -186,13 +199,21 @@ async def repo_relate(
     Returns:
         List containing the created relationship record
     """
-    if data is None:
-        data = {}
+    data = dict(data) if data else {}
     validate_identifier(source, "source")
     validate_identifier(relationship, "relationship")
     validate_identifier(target, "target")
-    query = f"RELATE {source}->{relationship}->{target} CONTENT $data;"
-    return await repo_query(query, {"data": data})
+
+    payload = {
+        "in": ensure_record_id(source),
+        "out": ensure_record_id(target),
+        **data,
+    }
+    async with get_async_connection() as conn:
+        with translate_errors():
+            result = await conn.insert_relation(relationship, payload)
+    parsed = parse_record_ids(result)
+    return [parsed] if isinstance(parsed, dict) else parsed
 
 
 @surreal_retry_async
@@ -216,7 +237,8 @@ async def repo_select(
         table_or_id = ensure_record_id(table_or_id)
 
     async with get_async_connection() as conn:
-        result = await conn.select(table_or_id)
+        with translate_errors():
+            result = await conn.select(table_or_id)
         parsed = parse_record_ids(result)
         if is_single and isinstance(parsed, list) and len(parsed) == 1:
             return parsed[0]

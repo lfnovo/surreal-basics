@@ -23,7 +23,7 @@ classifiers = [
     "Framework :: AsyncIO",
 ]
 dependencies = [
-    "surrealdb>=1.0.7",
+    "surrealdb>=2.0.0",
     "tenacity>=8.0.0",
 ]
 
@@ -45,9 +45,6 @@ dev = [
 
 [project.scripts]
 sbl-migrate = "surreal_basics.migrate.cli:main"
-
-[tool.uv]
-constraint-dependencies = ["pydantic-core<2.44"]
 
 [build-system]
 requires = ["hatchling"]

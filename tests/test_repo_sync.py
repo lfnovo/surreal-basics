@@ -22,6 +22,8 @@ class TestRepoSync:
 
     def test_repo_query_sync(self, surreal_config_ws, cleanup_table_sync):
         """Test basic query execution."""
+        # SurrealDB 3.x errors on reads of an undefined table; create one first.
+        repo_create_sync(TEST_TABLE, {"name": "seed"})
         result = repo_query_sync(f"SELECT * FROM {TEST_TABLE}")
         assert isinstance(result, list)
 

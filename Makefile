@@ -13,8 +13,11 @@ test: ## Run the full test suite (starts SurrealDB via docker compose)
 test-unit: ## Run only unit tests (no database required)
 	uv run pytest -m "not integration"
 
-test-integration: ## Run only the integration tests
+test-integration: ## Run integration tests (SurrealDB v2; override SBL_TEST_SURREAL_VERSION)
 	uv run pytest -m integration
+
+test-integration-v3: ## Run integration tests against SurrealDB v3
+	SBL_TEST_SURREAL_VERSION=v3 uv run pytest -m integration
 
 lint: ## Lint with ruff
 	uv run ruff check surreal_basics tests
@@ -28,10 +31,13 @@ typecheck: ## Static type-check with mypy
 check: lint typecheck ## Run lint + typecheck, then format-check
 	uv run ruff format --check surreal_basics tests
 
-db-up: ## Start the local SurrealDB container
-	docker compose up -d --wait
+db-up: ## Start the local SurrealDB v2 container
+	docker compose up -d --wait surrealdb-v2
 
-db-down: ## Stop and remove the local SurrealDB container
+db-up-v3: ## Start the local SurrealDB v3 container
+	docker compose up -d --wait surrealdb-v3
+
+db-down: ## Stop and remove the local SurrealDB containers
 	docker compose down -v
 
 bench: ## Run the benchmark

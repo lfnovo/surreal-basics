@@ -60,6 +60,11 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # The surrealdb 2.x SDK supports SurrealDB servers v2.0.0–v3.x; test both.
+        surreal-version: [v2, v3]
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +76,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Run integration tests
-        # The suite starts/stops SurrealDB via docker compose itself.
+      - name: Run integration tests (SurrealDB ${{ matrix.surreal-version }})
+        # The suite starts/stops the right SurrealDB via docker compose itself.
+        env:
+          SBL_TEST_SURREAL_VERSION: ${{ matrix.surreal-version }}
         run: uv run pytest -m integration

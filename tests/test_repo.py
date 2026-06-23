@@ -23,6 +23,8 @@ class TestRepoAsync:
 
     async def test_repo_query(self, surreal_config_ws, cleanup_table, async_cleanup):
         """Test basic query execution."""
+        # SurrealDB 3.x errors on reads of an undefined table; create one first.
+        await repo_create(TEST_TABLE, {"name": "seed"})
         result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
         assert isinstance(result, list)
 

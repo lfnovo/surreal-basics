@@ -6,6 +6,7 @@ The surrealdb 2.x SDK raises typed exceptions (``surrealdb.errors.*``) from
 exception hierarchy and the detection of WebSocket-drop conditions.
 """
 
+import uuid
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -25,12 +26,36 @@ except ImportError:  # pragma: no cover - websockets ships with surrealdb
 
 
 # Exceptions that signal the persistent WS singleton is dead and must be rebuilt.
-# The ConnectionManager catches these to reset the singleton and surface them as
-# transient errors so the retry layer reconnects transparently.
+# The ConnectionManager catches these (only on the WS path) to reset the
+# singleton and surface them as transient errors so the retry layer reconnects
+# transparently.
 WS_DROPPED_EXCEPTIONS: tuple[type[BaseException], ...] = (
     _WSConnectionClosed,
     ConnectionUnavailableError,
 )
+
+
+def is_dropped_request_keyerror(e: BaseException) -> bool:
+    """True for the surrealdb 2.x WS dead-socket symptom.
+
+    When the socket drops mid-request the WS client raises a bare
+    ``KeyError(<request-uuid>)``: the receive loop clears the pending-future map
+    on close, then the in-flight ``_send`` hits ``del self.qry[query_id]`` on the
+    now-missing key. Request ids are ``str(uuid.uuid4())``, so we only treat a
+    KeyError whose key parses as a UUID as a drop — a non-SDK KeyError in the
+    same code block (e.g. a real ``KeyError('name')``) is left untouched.
+    """
+    if not isinstance(e, KeyError) or not e.args:
+        return False
+    key = e.args[0]
+    if not isinstance(key, str):
+        return False
+    try:
+        uuid.UUID(key)
+        return True
+    except ValueError:
+        return False
+
 
 # Substring SurrealDB uses to flag a transaction/lock conflict as retryable.
 _RETRYABLE_MARKER = "can be retried"
@@ -67,3 +92,29 @@ def is_duplicate_error(e: BaseException) -> bool:
     """
     msg = str(e).lower()
     return "already exists" in msg or "already contains" in msg
+
+
+# Markers for a rejected/expired auth token on an otherwise-open connection
+# (e.g. SurrealDB Cloud's 60-minute JWT lapsing on a warm persistent socket).
+_AUTH_REJECTED_MARKERS = (
+    "not enough permissions",
+    "iam error",
+    "problem with authentication",
+    "token has expired",
+    "token is expired",
+    "invalid token",
+)
+
+
+def is_auth_rejected_error(e: BaseException) -> bool:
+    """True when an error looks like a rejected/expired authentication token.
+
+    A persistent connection signs in once and caches the token; against a
+    backend with a time-limited token, queries start failing with an IAM /
+    permission error once it lapses, *without* the socket dropping. Treating
+    that as "the singleton is dead" lets the connection be rebuilt with a fresh
+    signin. Note this cannot distinguish an expired token from a genuine
+    permission denial, so genuine denials are retried before surfacing.
+    """
+    msg = str(e).lower()
+    return any(m in msg for m in _AUTH_REJECTED_MARKERS)

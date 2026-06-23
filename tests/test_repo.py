@@ -181,3 +181,54 @@ class TestRepoAsync:
         assert result[0]["out"] == user2["id"]
 
         await repo_query("DELETE follows")
+
+    async def test_ws_drop_keyerror_reconnects(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        """A dropped-WS KeyError (the surrealdb 2.x dead-socket symptom) must
+        reset the singleton and surface as transient, so the next call
+        transparently reconnects."""
+        from surreal_basics import get_async_connection
+        from surreal_basics.connection import ConnectionManager
+        from surreal_basics.exceptions import SurrealDBTransientError
+
+        # Prime the persistent WS singleton.
+        await repo_create(TEST_TABLE, {"name": "seed"})
+        assert ConnectionManager._ws_async_connected
+
+        # Simulate the 2.x symptom: an in-flight request raising KeyError(uuid).
+        with pytest.raises(SurrealDBTransientError):
+            async with get_async_connection():
+                raise KeyError("00000000-aaaa-bbbb-cccc-000000000000")
+
+        # Singleton was dropped → the next operation rebuilds and succeeds.
+        assert not ConnectionManager._ws_async_connected
+        result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
+        assert isinstance(result, list)
+
+    async def test_ws_auth_rejected_reconnects(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        """An auth/IAM error on a warm socket (e.g. expired JWT) must reset the
+        singleton and surface as transient, so the retry re-signs in."""
+        from surreal_basics import get_async_connection
+        from surreal_basics.connection import ConnectionManager
+        from surreal_basics.exceptions import (
+            SurrealDBQueryError,
+            SurrealDBTransientError,
+        )
+
+        await repo_create(TEST_TABLE, {"name": "seed"})
+        assert ConnectionManager._ws_async_connected
+
+        # Simulate the expired-token symptom: a permission error over a still-open
+        # socket (translate_errors maps the SDK error to SurrealDBQueryError).
+        with pytest.raises(SurrealDBTransientError):
+            async with get_async_connection():
+                raise SurrealDBQueryError(
+                    "IAM error: Not enough permissions to perform this action"
+                )
+
+        assert not ConnectionManager._ws_async_connected
+        result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
+        assert isinstance(result, list)

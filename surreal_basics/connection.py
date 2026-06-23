@@ -5,9 +5,17 @@ from typing import AsyncGenerator, Generator, Optional
 
 from surrealdb import AsyncSurreal, Surreal  # type: ignore
 
-from ._sdk import WS_DROPPED_EXCEPTIONS
+from ._sdk import (
+    WS_DROPPED_EXCEPTIONS,
+    is_auth_rejected_error,
+    is_dropped_request_keyerror,
+)
 from .config import get_config
-from .exceptions import SurrealDBConnectionError, SurrealDBTransientError
+from .exceptions import (
+    SurrealDBConnectionError,
+    SurrealDBQueryError,
+    SurrealDBTransientError,
+)
 
 
 class ConnectionManager:
@@ -113,6 +121,25 @@ class ConnectionManager:
             cls._embedded_async_connection = None
             cls._embedded_async_connected = False
 
+    @staticmethod
+    async def _close_quietly_async(conn: Optional[AsyncSurreal]) -> None:
+        """Best-effort close of a discarded connection (e.g. after a rejected
+        auth token, where the socket is still open and must not leak)."""
+        if conn is not None:
+            try:
+                await conn.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _close_quietly_sync(conn: Optional[Surreal]) -> None:
+        """Best-effort close of a discarded connection (sync)."""
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     @classmethod
     @asynccontextmanager
     async def get_async_connection(cls) -> AsyncGenerator[AsyncSurreal, None]:
@@ -168,6 +195,28 @@ class ConnectionManager:
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
                 ) from e
+            except KeyError as e:
+                # surrealdb 2.x dead-socket symptom: KeyError(<request-uuid>).
+                # Non-UUID KeyErrors are real logic errors and re-raised as-is.
+                if not is_dropped_request_keyerror(e):
+                    raise
+                cls._ws_async_connection = None
+                cls._ws_async_connected = False
+                raise SurrealDBTransientError(
+                    f"WebSocket connection dropped (request {e})"
+                ) from e
+            except SurrealDBQueryError as e:
+                # Auth/IAM error on a still-open socket = the cached token was
+                # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
+                if is_auth_rejected_error(e):
+                    conn = cls._ws_async_connection
+                    cls._ws_async_connection = None
+                    cls._ws_async_connected = False
+                    await cls._close_quietly_async(conn)
+                    raise SurrealDBTransientError(
+                        f"Auth token rejected; reconnecting: {e}"
+                    ) from e
+                raise
 
         elif config.persistent:
             # HTTP with persistent connection
@@ -183,7 +232,18 @@ class ConnectionManager:
                     cls._http_async_connected = False
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
-            yield cls._http_async_connection
+            try:
+                yield cls._http_async_connection
+            except SurrealDBQueryError as e:
+                if is_auth_rejected_error(e):
+                    conn = cls._http_async_connection
+                    cls._http_async_connection = None
+                    cls._http_async_connected = False
+                    await cls._close_quietly_async(conn)
+                    raise SurrealDBTransientError(
+                        f"Auth token rejected; reconnecting: {e}"
+                    ) from e
+                raise
 
         else:
             # HTTP: create new connection each time (stateless mode)
@@ -251,6 +311,28 @@ class ConnectionManager:
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
                 ) from e
+            except KeyError as e:
+                # surrealdb 2.x dead-socket symptom: KeyError(<request-uuid>).
+                # Non-UUID KeyErrors are real logic errors and re-raised as-is.
+                if not is_dropped_request_keyerror(e):
+                    raise
+                cls._ws_sync_connection = None
+                cls._ws_sync_connected = False
+                raise SurrealDBTransientError(
+                    f"WebSocket connection dropped (request {e})"
+                ) from e
+            except SurrealDBQueryError as e:
+                # Auth/IAM error on a still-open socket = the cached token was
+                # rejected (e.g. an expired JWT). Rebuild so the retry re-signs in.
+                if is_auth_rejected_error(e):
+                    conn = cls._ws_sync_connection
+                    cls._ws_sync_connection = None
+                    cls._ws_sync_connected = False
+                    cls._close_quietly_sync(conn)
+                    raise SurrealDBTransientError(
+                        f"Auth token rejected; reconnecting: {e}"
+                    ) from e
+                raise
 
         elif config.persistent:
             # HTTP with persistent connection
@@ -266,7 +348,18 @@ class ConnectionManager:
                     cls._http_sync_connected = False
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
-            yield cls._http_sync_connection
+            try:
+                yield cls._http_sync_connection
+            except SurrealDBQueryError as e:
+                if is_auth_rejected_error(e):
+                    conn = cls._http_sync_connection
+                    cls._http_sync_connection = None
+                    cls._http_sync_connected = False
+                    cls._close_quietly_sync(conn)
+                    raise SurrealDBTransientError(
+                        f"Auth token rejected; reconnecting: {e}"
+                    ) from e
+                raise
 
         else:
             # HTTP: create new connection each time (stateless mode)

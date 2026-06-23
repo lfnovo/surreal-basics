@@ -4,6 +4,8 @@ import pytest
 from surrealdb.errors import ConnectionUnavailableError, SurrealError
 
 from surreal_basics._sdk import (
+    is_auth_rejected_error,
+    is_dropped_request_keyerror,
     is_duplicate_error,
     translate_errors,
 )
@@ -31,6 +33,27 @@ class TestTranslateErrors:
             with translate_errors():
                 raise ConnectionUnavailableError("socket gone")
 
+    def test_keyerror_passes_through(self):
+        # translate_errors only maps SurrealError; a KeyError (the WS dead-socket
+        # symptom) must propagate untouched so the ConnectionManager can handle it.
+        with pytest.raises(KeyError):
+            with translate_errors():
+                raise KeyError("00000000-aaaa-bbbb-cccc-000000000000")
+
+
+class TestIsDroppedRequestKeyError:
+    def test_uuid_keyerror_is_a_drop(self):
+        assert is_dropped_request_keyerror(
+            KeyError("00000000-aaaa-bbbb-cccc-000000000000")
+        )
+
+    @pytest.mark.parametrize("key", ["name", "id", "user_id", "0"])
+    def test_non_uuid_keyerror_is_not_a_drop(self, key):
+        assert is_dropped_request_keyerror(KeyError(key)) is False
+
+    def test_non_keyerror_is_not_a_drop(self):
+        assert is_dropped_request_keyerror(ValueError("x")) is False
+
     def test_non_surreal_error_passes_through(self):
         with pytest.raises(ValueError):
             with translate_errors():
@@ -50,3 +73,20 @@ class TestIsDuplicateError:
 
     def test_ignores_unrelated(self):
         assert is_duplicate_error(Exception("some other error")) is False
+
+
+class TestIsAuthRejectedError:
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "IAM error: Not enough permissions to perform this action",
+            "There was a problem with authentication",
+            "The token has expired",
+            "Invalid token",
+        ],
+    )
+    def test_detects_auth_rejection(self, msg):
+        assert is_auth_rejected_error(Exception(msg)) is True
+
+    def test_ignores_unrelated(self):
+        assert is_auth_rejected_error(Exception("table does not exist")) is False

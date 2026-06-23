@@ -130,8 +130,8 @@ surreal_basics.init(mode="embedded", path="./surreal.db")
 - **On-disk, no server**: persists to a local SurrealKV file
 - **Ideal for**: single-node apps, CLIs, local-first tools
 
-> Memory and embedded modes require the `surrealdb` SDK extras for the embedded
-> engine. Install them if you hit an import error for these modes.
+> Memory and embedded engines ship with the `surrealdb` SDK — no extra install
+> is needed to use these modes.
 
 ## TLS
 

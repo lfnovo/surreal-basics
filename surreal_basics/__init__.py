@@ -23,7 +23,28 @@ Usage:
     results = repo_query_sync("SELECT * FROM user")
 """
 
+# Re-export RecordID for convenience
+from surrealdb import RecordID  # type: ignore
+
 from .config import get_config, get_mode, init, set_mode
+
+# Connection management (for advanced use)
+from .connection import (
+    ConnectionManager,
+    get_async_connection,
+    get_sync_connection,
+    reset_connections,
+    reset_connections_async,
+)
+
+# Exceptions
+from .exceptions import (
+    SurrealDBConnectionError,
+    SurrealDBError,
+    SurrealDBMigrationError,
+    SurrealDBQueryError,
+    SurrealDBTransientError,
+)
 
 # Async repository functions
 from .repo import (
@@ -52,27 +73,6 @@ from .repo_sync import (
 # Utilities
 from .utils import ensure_record_id, parse_record_ids
 
-# Exceptions
-from .exceptions import (
-    SurrealDBConnectionError,
-    SurrealDBError,
-    SurrealDBMigrationError,
-    SurrealDBQueryError,
-    SurrealDBTransientError,
-)
-
-# Connection management (for advanced use)
-from .connection import (
-    ConnectionManager,
-    get_async_connection,
-    get_sync_connection,
-    reset_connections,
-    reset_connections_async,
-)
-
-# Re-export RecordID for convenience
-from surrealdb import RecordID  # type: ignore
-
 
 # Module-level property for easy mode access
 class _ModuleProxy:
@@ -86,8 +86,6 @@ class _ModuleProxy:
     def mode(self, value: str) -> None:
         set_mode(value)  # type: ignore
 
-
-import sys
 
 # Replace module with proxy for property support
 _proxy = _ModuleProxy()

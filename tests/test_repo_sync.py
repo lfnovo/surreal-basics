@@ -29,8 +29,7 @@ class TestRepoSync:
         """Test query with variables."""
         repo_create_sync(TEST_TABLE, {"name": "Test", "value": 42})
         result = repo_query_sync(
-            f"SELECT * FROM {TEST_TABLE} WHERE value = $val",
-            {"val": 42}
+            f"SELECT * FROM {TEST_TABLE} WHERE value = $val", {"val": 42}
         )
         assert len(result) == 1
         assert result[0]["value"] == 42
@@ -84,9 +83,7 @@ class TestRepoSync:
     def test_repo_upsert_create_sync(self, surreal_config_ws, cleanup_table_sync):
         """Test upsert creates new record."""
         result = repo_upsert_sync(
-            TEST_TABLE,
-            f"{TEST_TABLE}:new_id",
-            {"name": "New Record"}
+            TEST_TABLE, f"{TEST_TABLE}:new_id", {"name": "New Record"}
         )
         assert len(result) == 1
         assert result[0]["name"] == "New Record"
@@ -94,7 +91,9 @@ class TestRepoSync:
     def test_repo_upsert_update_sync(self, surreal_config_ws, cleanup_table_sync):
         """Test upsert updates existing record."""
         repo_upsert_sync(TEST_TABLE, f"{TEST_TABLE}:upsert_test", {"name": "Original"})
-        result = repo_upsert_sync(TEST_TABLE, f"{TEST_TABLE}:upsert_test", {"name": "Updated"})
+        result = repo_upsert_sync(
+            TEST_TABLE, f"{TEST_TABLE}:upsert_test", {"name": "Updated"}
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "Updated"
@@ -135,10 +134,7 @@ class TestRepoSync:
             user2 = user2[0]
 
         result = repo_relate_sync(
-            user1["id"],
-            "follows",
-            user2["id"],
-            {"since": "2024-01-01"}
+            user1["id"], "follows", user2["id"], {"since": "2024-01-01"}
         )
 
         assert len(result) == 1

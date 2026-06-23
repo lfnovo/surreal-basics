@@ -8,7 +8,7 @@ from surrealdb import RecordID  # type: ignore
 from .connection import get_sync_connection
 from .exceptions import SurrealDBQueryError, SurrealDBTransientError
 from .retry import surreal_retry
-from .utils import ensure_record_id, parse_record_ids
+from .utils import ensure_record_id, parse_record_ids, validate_identifier
 
 
 @surreal_retry
@@ -90,6 +90,7 @@ def repo_upsert_sync(
         data["updated"] = datetime.now(timezone.utc)
 
     target = record_id if record_id else table
+    validate_identifier(target, "record_id" if record_id else "table")
     query = f"UPSERT {target} MERGE $data;"
     return repo_query_sync(query, {"data": data})
 
@@ -118,6 +119,7 @@ def repo_update_sync(
     else:
         full_id = f"{table}:{record_id}"
 
+    validate_identifier(full_id, "record_id")
     data = data.copy()
     data["updated"] = datetime.now(timezone.utc)
     query = f"UPDATE {full_id} MERGE $data;"
@@ -186,6 +188,9 @@ def repo_relate_sync(
     """
     if data is None:
         data = {}
+    validate_identifier(source, "source")
+    validate_identifier(relationship, "relationship")
+    validate_identifier(target, "target")
     query = f"RELATE {source}->{relationship}->{target} CONTENT $data;"
     return repo_query_sync(query, {"data": data})
 

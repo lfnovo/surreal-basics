@@ -43,8 +43,7 @@ def discover_migrations(directory: Path) -> list[MigrationFile]:
         if version in up_files:
             existing_name = up_files[version][0]
             raise ValueError(
-                f"Duplicate migration version {version}: "
-                f"'{existing_name}' and '{name}'"
+                f"Duplicate migration version {version}: '{existing_name}' and '{name}'"
             )
 
         up_files[version] = (name, path)
@@ -95,9 +94,7 @@ def scaffold_migration(directory: Path, name: str) -> tuple[Path, Path]:
     up_path = directory / f"{next_version:03d}_{name}.surrealql"
     down_path = directory / f"{next_version:03d}_{name}_down.surrealql"
 
-    up_path.write_text(
-        f"-- Migration {next_version:03d}: {name}\n\n", encoding="utf-8"
-    )
+    up_path.write_text(f"-- Migration {next_version:03d}: {name}\n\n", encoding="utf-8")
     down_path.write_text(
         f"-- Rollback {next_version:03d}: {name}\n\n", encoding="utf-8"
     )

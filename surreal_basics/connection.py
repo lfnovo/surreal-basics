@@ -11,6 +11,7 @@ from .exceptions import SurrealDBConnectionError, SurrealDBTransientError
 try:
     from websockets.exceptions import ConnectionClosed as _WSConnectionClosed
 except ImportError:  # pragma: no cover - websockets ships with surrealdb
+
     class _WSConnectionClosed(Exception):  # type: ignore[no-redef]
         """Fallback when websockets isn't importable; never matches a real drop."""
 
@@ -136,7 +137,10 @@ class ConnectionManager:
 
         if config.mode in ("memory", "embedded"):
             # Memory/Embedded: always use persistent connection (no signin needed)
-            if cls._embedded_async_connection is None or not cls._embedded_async_connected:
+            if (
+                cls._embedded_async_connection is None
+                or not cls._embedded_async_connected
+            ):
                 try:
                     cls._embedded_async_connection = AsyncSurreal(config.get_url())
                     ns, db = cls._get_ns_db()
@@ -216,7 +220,10 @@ class ConnectionManager:
 
         if config.mode in ("memory", "embedded"):
             # Memory/Embedded: always use persistent connection (no signin needed)
-            if cls._embedded_sync_connection is None or not cls._embedded_sync_connected:
+            if (
+                cls._embedded_sync_connection is None
+                or not cls._embedded_sync_connected
+            ):
                 try:
                     cls._embedded_sync_connection = Surreal(config.get_url())
                     ns, db = cls._get_ns_db()

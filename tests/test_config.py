@@ -1,10 +1,11 @@
 """Tests for configuration module."""
 
 import os
+
 import pytest
 
 from surreal_basics import get_config, get_mode, init, set_mode
-from surreal_basics.config import SurrealConfig, ConnectionMode
+from surreal_basics.config import SurrealConfig
 
 
 class TestSurrealConfig:
@@ -177,9 +178,7 @@ class TestEnvironmentVariableAliases:
         assert config.port == 443
         assert config.mode == "ws"
         assert config.tls is True
-        assert (
-            config.get_url() == "wss://tenant.aws-use1.surreal.cloud:443/rpc"
-        )
+        assert config.get_url() == "wss://tenant.aws-use1.surreal.cloud:443/rpc"
 
     def test_surreal_url_https_no_explicit_port_defaults_to_443(
         self, reset_config, monkeypatch
@@ -190,10 +189,7 @@ class TestEnvironmentVariableAliases:
         config = SurrealConfig()
         assert config.port == 443
         assert config.tls is True
-        assert (
-            config.get_url()
-            == "https://tenant.aws-use1.surreal.cloud:443/rpc"
-        )
+        assert config.get_url() == "https://tenant.aws-use1.surreal.cloud:443/rpc"
 
     def test_surreal_url_ws_no_explicit_port_defaults_to_8000(
         self, reset_config, monkeypatch
@@ -257,7 +253,6 @@ class TestEnvironmentVariableAliases:
         from surreal_basics import init
 
         init(mode="ws", host="example.com", port=443, tls=True)
-        config = SurrealConfig()
         # init() mutates the global singleton; reset_config gives us a fresh one
         # so we explicitly test the global.
         from surreal_basics import get_config
@@ -277,9 +272,7 @@ class TestEnvironmentVariableAliases:
         assert cfg.port == 443
         assert cfg.get_url() == "wss://example.com:443/rpc"
 
-    def test_init_tls_false_recomputes_default_port(
-        self, reset_config, monkeypatch
-    ):
+    def test_init_tls_false_recomputes_default_port(self, reset_config, monkeypatch):
         """init(tls=False) on a config that had implicit :443 should snap back to :8000."""
         monkeypatch.delenv("SURREAL_PORT", raising=False)
         monkeypatch.setenv("SURREAL_URL", "wss://example.com")  # implicit :443
@@ -427,3 +420,20 @@ class TestEnvironmentVariableAliases:
         assert config.password == "secret"
         assert config.namespace == "investments"
         assert config.database == "investments"
+
+
+class TestConfigValidation:
+    """Tests that invalid configuration fails fast with a clear error."""
+
+    def test_invalid_port_raises(self, reset_config, monkeypatch):
+        """A non-integer SURREAL_PORT should raise ValueError, not crash later."""
+        monkeypatch.delenv("SURREAL_URL", raising=False)
+        monkeypatch.setenv("SURREAL_PORT", "not-a-number")
+        with pytest.raises(ValueError, match="SURREAL_PORT"):
+            SurrealConfig()
+
+    def test_unsupported_url_scheme_raises(self, reset_config, monkeypatch):
+        """An unknown SURREAL_URL scheme should raise instead of silently using ws."""
+        monkeypatch.setenv("SURREAL_URL", "ftp://example.com:21")
+        with pytest.raises(ValueError, match="Unsupported SURREAL_URL scheme"):
+            SurrealConfig()

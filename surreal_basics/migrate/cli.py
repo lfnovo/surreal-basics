@@ -76,7 +76,7 @@ def cmd_create(args: argparse.Namespace) -> None:
     directory = Path(args.dir)
     up_path, down_path = scaffold_migration(directory, args.name)
 
-    print(f"Created migration files:")
+    print("Created migration files:")
     print(f"  {up_path}")
     print(f"  {down_path}")
 

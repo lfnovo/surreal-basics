@@ -6,16 +6,20 @@ from surreal_basics import init, repo_query_sync, reset_connections
 from surreal_basics.exceptions import SurrealDBMigrationError
 from surreal_basics.migrate import MigrationRunner
 
+from .conftest import TEST_HOST, TEST_PORT
+
+pytestmark = pytest.mark.integration
+
 INTEGRATION_NS = "surreal-basics"
 INTEGRATION_DB = "integration-test"
 
 
 @pytest.fixture(autouse=True)
-def setup_connection():
+def setup_connection(surrealdb_service):
     """Configure connection for integration tests."""
     init(
-        host="localhost",
-        port=8018,
+        host=TEST_HOST,
+        port=TEST_PORT,
         namespace=INTEGRATION_NS,
         database=INTEGRATION_DB,
         mode="ws",
@@ -86,9 +90,7 @@ class TestMigrationRunnerUp:
         runner = MigrationRunner(migrations_dir)
         runner.run_up()
 
-        records = repo_query_sync(
-            "SELECT * FROM _sbl_migrations ORDER BY version ASC"
-        )
+        records = repo_query_sync("SELECT * FROM _sbl_migrations ORDER BY version ASC")
         assert len(records) == 2
         assert records[0]["version"] == 1
         assert records[0]["name"] == "create_users"
@@ -151,7 +153,11 @@ class TestMigrationRunnerDown:
 
         result = repo_query_sync("INFO FOR DB;")
         # INFO FOR DB returns a dict directly
-        tables = result.get("tables", {}) if isinstance(result, dict) else result[0].get("tables", {})
+        tables = (
+            result.get("tables", {})
+            if isinstance(result, dict)
+            else result[0].get("tables", {})
+        )
         assert "users" not in tables
 
 
@@ -199,7 +205,11 @@ class TestMigrationRunnerDryRun:
         runner.run_up(dry_run=True)
 
         result = repo_query_sync("INFO FOR DB;")
-        tables = result.get("tables", {}) if isinstance(result, dict) else result[0].get("tables", {})
+        tables = (
+            result.get("tables", {})
+            if isinstance(result, dict)
+            else result[0].get("tables", {})
+        )
         assert "users" not in tables
 
     def test_dry_run_catches_invalid_sql(self, tmp_path):

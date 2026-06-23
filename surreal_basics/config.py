@@ -45,8 +45,10 @@ def _parse_surreal_url() -> Optional[dict]:
         mode = "http"
         tls = scheme == "https"
     else:
-        mode = "ws"
-        tls = False
+        raise ValueError(
+            f"Unsupported SURREAL_URL scheme {scheme!r} (from {url!r}). "
+            "Supported schemes: ws, wss, http, https, mem, memory, file, surrealkv."
+        )
 
     return {
         "mode": mode,
@@ -122,7 +124,12 @@ def _get_port() -> int:
 
     env_port = os.getenv("SURREAL_PORT")
     if env_port:
-        return int(env_port)
+        try:
+            return int(env_port)
+        except ValueError as e:
+            raise ValueError(
+                f"SURREAL_PORT must be an integer, got {env_port!r}."
+            ) from e
 
     return _default_port_for(_get_tls())
 
@@ -151,17 +158,25 @@ class SurrealConfig:
     port: int = field(default_factory=_get_port)
     user: str = field(default_factory=lambda: os.getenv("SURREAL_USER", "root"))
     password: str = field(
-        default_factory=lambda: os.getenv("SURREAL_PASS") or os.getenv("SURREAL_PASSWORD", "root")
+        default_factory=lambda: (
+            os.getenv("SURREAL_PASS") or os.getenv("SURREAL_PASSWORD") or "root"
+        )
     )
     namespace: str = field(
-        default_factory=lambda: os.getenv("SURREAL_NS") or os.getenv("SURREAL_NAMESPACE", "test")
+        default_factory=lambda: (
+            os.getenv("SURREAL_NS") or os.getenv("SURREAL_NAMESPACE") or "test"
+        )
     )
     database: str = field(
-        default_factory=lambda: os.getenv("SURREAL_DB") or os.getenv("SURREAL_DATABASE", "test")
+        default_factory=lambda: (
+            os.getenv("SURREAL_DB") or os.getenv("SURREAL_DATABASE") or "test"
+        )
     )
     mode: ConnectionMode = field(default_factory=_get_mode)
     persistent: bool = field(
-        default_factory=lambda: os.getenv("SURREAL_PERSISTENT", "true").lower() == "true"
+        default_factory=lambda: (
+            os.getenv("SURREAL_PERSISTENT", "true").lower() == "true"
+        )
     )
     path: Optional[str] = field(default_factory=_get_path)
     tls: bool = field(default_factory=_get_tls)

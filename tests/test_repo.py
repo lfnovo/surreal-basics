@@ -26,12 +26,13 @@ class TestRepoAsync:
         result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
         assert isinstance(result, list)
 
-    async def test_repo_query_with_vars(self, surreal_config_ws, cleanup_table, async_cleanup):
+    async def test_repo_query_with_vars(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
         """Test query with variables."""
         await repo_create(TEST_TABLE, {"name": "Test", "value": 42})
         result = await repo_query(
-            f"SELECT * FROM {TEST_TABLE} WHERE value = $val",
-            {"val": 42}
+            f"SELECT * FROM {TEST_TABLE} WHERE value = $val", {"val": 42}
         )
         assert len(result) == 1
         assert result[0]["value"] == 42
@@ -47,7 +48,9 @@ class TestRepoAsync:
         assert "updated" in record
         assert record["name"] == "Test User"
 
-    async def test_repo_select_all(self, surreal_config_ws, cleanup_table, async_cleanup):
+    async def test_repo_select_all(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
         """Test selecting all records from table."""
         await repo_create(TEST_TABLE, {"name": "User 1"})
         await repo_create(TEST_TABLE, {"name": "User 2"})
@@ -56,7 +59,9 @@ class TestRepoAsync:
         assert isinstance(records, list)
         assert len(records) == 2
 
-    async def test_repo_select_by_id(self, surreal_config_ws, cleanup_table, async_cleanup):
+    async def test_repo_select_by_id(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
         """Test selecting a specific record by ID."""
         created = await repo_create(TEST_TABLE, {"name": "Specific User"})
         if isinstance(created, list):
@@ -82,20 +87,24 @@ class TestRepoAsync:
         assert len(result) == 1
         assert result[0]["name"] == "Updated"
 
-    async def test_repo_upsert_create(self, surreal_config_ws, cleanup_table, async_cleanup):
+    async def test_repo_upsert_create(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
         """Test upsert creates new record."""
         result = await repo_upsert(
-            TEST_TABLE,
-            f"{TEST_TABLE}:new_id",
-            {"name": "New Record"}
+            TEST_TABLE, f"{TEST_TABLE}:new_id", {"name": "New Record"}
         )
         assert len(result) == 1
         assert result[0]["name"] == "New Record"
 
-    async def test_repo_upsert_update(self, surreal_config_ws, cleanup_table, async_cleanup):
+    async def test_repo_upsert_update(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
         """Test upsert updates existing record."""
         await repo_upsert(TEST_TABLE, f"{TEST_TABLE}:upsert_test", {"name": "Original"})
-        result = await repo_upsert(TEST_TABLE, f"{TEST_TABLE}:upsert_test", {"name": "Updated"})
+        result = await repo_upsert(
+            TEST_TABLE, f"{TEST_TABLE}:upsert_test", {"name": "Updated"}
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "Updated"
@@ -112,7 +121,9 @@ class TestRepoAsync:
         records = await repo_select(TEST_TABLE)
         assert len(records) == 0
 
-    async def test_repo_insert_bulk(self, surreal_config_ws, cleanup_table, async_cleanup):
+    async def test_repo_insert_bulk(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
         """Test bulk insert."""
         data = [
             {"name": "Bulk 1"},
@@ -136,10 +147,7 @@ class TestRepoAsync:
             user2 = user2[0]
 
         result = await repo_relate(
-            user1["id"],
-            "follows",
-            user2["id"],
-            {"since": "2024-01-01"}
+            user1["id"], "follows", user2["id"], {"since": "2024-01-01"}
         )
 
         assert len(result) == 1

@@ -1,5 +1,7 @@
 """Tests for connection management."""
 
+import asyncio
+
 import pytest
 from websockets.exceptions import ConnectionClosedError
 
@@ -133,6 +135,40 @@ class TestConnectionIntegration:
             pass
         # Should be same connection object
         assert ConnectionManager._http_async_connection is not None
+
+
+@pytest.mark.integration
+class TestCrossEventLoopRecovery:
+    """Regression tests for #20: persistent async singletons across event loops.
+
+    The Streamlit pattern — one asyncio.run() per operation — used to fail on
+    the second loop with "attached to a different loop", because the singleton
+    kept futures bound to the first (closed) loop.
+    """
+
+    def test_ws_async_across_event_loops(self, surreal_config_ws):
+        """Each asyncio.run() gets a working connection, rebuilt per loop."""
+        for i in range(3):
+            result = asyncio.run(repo_query("RETURN $n", {"n": i}))
+            assert result == i
+
+    def test_http_async_across_event_loops(self, surreal_config_http):
+        """Same for the persistent HTTP async singleton."""
+        init(persistent=True)
+        for i in range(3):
+            result = asyncio.run(repo_query("RETURN $n", {"n": i}))
+            assert result == i
+
+    def test_ws_async_same_loop_keeps_singleton(self, surreal_config_ws):
+        """Within one loop the singleton is still reused, not rebuilt."""
+
+        async def two_queries():
+            await repo_query("RETURN 1")
+            first = ConnectionManager._ws_async_connection
+            await repo_query("RETURN 2")
+            return first is ConnectionManager._ws_async_connection
+
+        assert asyncio.run(two_queries()) is True
 
 
 @pytest.mark.integration
@@ -302,6 +338,7 @@ class TestWSDroppedConnectionRecovery:
             sentinel = object()
             ConnectionManager._ws_async_connection = sentinel  # type: ignore[assignment]
             ConnectionManager._ws_async_connected = True
+            ConnectionManager._ws_async_loop = asyncio.get_running_loop()
 
             with pytest.raises(SurrealDBTransientError):
                 async with ConnectionManager.get_async_connection() as conn:
@@ -313,6 +350,7 @@ class TestWSDroppedConnectionRecovery:
         finally:
             ConnectionManager._ws_async_connection = None
             ConnectionManager._ws_async_connected = False
+            ConnectionManager._ws_async_loop = None
 
     def test_sync_ws_drop_resets_singleton(self, reset_config):
         init(host="localhost", port=8000, mode="ws", persistent=True)
@@ -340,6 +378,7 @@ class TestWSDroppedConnectionRecovery:
             sentinel = object()
             ConnectionManager._ws_async_connection = sentinel  # type: ignore[assignment]
             ConnectionManager._ws_async_connected = True
+            ConnectionManager._ws_async_loop = asyncio.get_running_loop()
 
             with pytest.raises(ValueError):
                 async with ConnectionManager.get_async_connection() as conn:
@@ -352,3 +391,4 @@ class TestWSDroppedConnectionRecovery:
         finally:
             ConnectionManager._ws_async_connection = None
             ConnectionManager._ws_async_connected = False
+            ConnectionManager._ws_async_loop = None

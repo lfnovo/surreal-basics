@@ -7,6 +7,7 @@ from surreal_basics import (
     init,
     repo_query,
     repo_query_sync,
+    reset_connections,
 )
 from surreal_basics.connection import ConnectionManager
 from surreal_basics.exceptions import SurrealDBTransientError
@@ -44,6 +45,45 @@ class TestConnectionManager:
         assert ConnectionManager._http_async_connected is False
         assert ConnectionManager._embedded_sync_connected is False
         assert ConnectionManager._embedded_async_connected is False
+
+
+class TestGetCredentials:
+    """Tests for scope-aware credential building."""
+
+    def test_root_scope(self, reset_config):
+        """Root scope sends username/password only."""
+        init(user="u", password="p", namespace="ns", database="db")
+        assert ConnectionManager._get_credentials() == {
+            "username": "u",
+            "password": "p",
+        }
+
+    def test_namespace_scope(self, reset_config):
+        """Namespace scope binds the signin to the configured namespace."""
+        init(
+            user="u",
+            password="p",
+            namespace="ns",
+            database="db",
+            auth_scope="namespace",
+        )
+        assert ConnectionManager._get_credentials() == {
+            "username": "u",
+            "password": "p",
+            "namespace": "ns",
+        }
+
+    def test_database_scope(self, reset_config):
+        """Database scope binds the signin to namespace and database."""
+        init(
+            user="u", password="p", namespace="ns", database="db", auth_scope="database"
+        )
+        assert ConnectionManager._get_credentials() == {
+            "username": "u",
+            "password": "p",
+            "namespace": "ns",
+            "database": "db",
+        }
 
 
 @pytest.mark.integration
@@ -93,6 +133,70 @@ class TestConnectionIntegration:
             pass
         # Should be same connection object
         assert ConnectionManager._http_async_connection is not None
+
+
+@pytest.mark.integration
+class TestScopedAuthIntegration:
+    """Integration tests for namespace/database-scoped signin (#17)."""
+
+    @pytest.fixture
+    def restore_root_auth(self):
+        """Restore root credentials and scope after a scoped-auth test."""
+        yield
+        reset_connections()
+        init(user="root", password="root", auth_scope="root")
+
+    @pytest.mark.asyncio
+    async def test_namespace_scoped_signin(
+        self, surreal_config_ws, restore_root_auth, async_cleanup
+    ):
+        """A DEFINE USER ... ON NAMESPACE user can sign in with namespace scope."""
+        await repo_query("REMOVE USER IF EXISTS ns_user ON NAMESPACE")
+        await repo_query(
+            "DEFINE USER ns_user ON NAMESPACE PASSWORD 'ns_secret' ROLES OWNER"
+        )
+
+        reset_connections()
+        init(user="ns_user", password="ns_secret", auth_scope="namespace")
+        result = await repo_query("RETURN 1")
+        assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_database_scoped_signin(
+        self, surreal_config_ws, restore_root_auth, async_cleanup
+    ):
+        """A DEFINE USER ... ON DATABASE user can sign in with database scope."""
+        await repo_query("REMOVE USER IF EXISTS db_user ON DATABASE")
+        await repo_query(
+            "DEFINE USER db_user ON DATABASE PASSWORD 'db_secret' ROLES OWNER"
+        )
+
+        reset_connections()
+        init(user="db_user", password="db_secret", auth_scope="database")
+        result = await repo_query("RETURN 1")
+        assert result == 1
+
+    def test_namespace_scoped_signin_sync_http(
+        self, surreal_config_http, restore_root_auth
+    ):
+        """Namespace-scoped signin also works on the sync HTTP path."""
+        repo_query_sync("REMOVE USER IF EXISTS ns_user_http ON NAMESPACE")
+        repo_query_sync(
+            "DEFINE USER ns_user_http ON NAMESPACE PASSWORD 'ns_secret' ROLES OWNER"
+        )
+
+        reset_connections()
+        init(user="ns_user_http", password="ns_secret", auth_scope="namespace")
+        result = repo_query_sync("RETURN 1")
+        assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_root_signin_unchanged(
+        self, surreal_config_ws, restore_root_auth, async_cleanup
+    ):
+        """Default root scope keeps working exactly as before."""
+        result = await repo_query("RETURN 1")
+        assert result == 1
 
 
 class TestMemoryConnection:

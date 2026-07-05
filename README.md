@@ -138,6 +138,7 @@ All async functions have sync equivalents with `_sync` suffix:
 | `SURREAL_PASS` | root | Password |
 | `SURREAL_NS` | test | Namespace |
 | `SURREAL_DB` | test | Database |
+| `SURREAL_AUTH_SCOPE` | root | Signin scope: "root", "namespace", or "database" |
 | `SURREAL_MODE` | ws | Mode: "ws" or "http" |
 | `SURREAL_PERSISTENT` | true | Persistent connection |
 

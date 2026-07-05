@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-05
+
+### Added
+
+- Namespace/database-scoped signin (#17). New `auth_scope` config
+  (`init(auth_scope=...)` or `SURREAL_AUTH_SCOPE`, default `"root"`):
+  `"namespace"`/`"database"` bind the signin to the configured namespace (and
+  database), enabling users defined with `DEFINE USER ... ON NAMESPACE` /
+  `ON DATABASE`. Previously the signin was always root-level, so scoped users
+  failed with an authentication error. The scope applies to every signin the
+  library performs, including token refresh and reconnects. An invalid scope
+  raises `ValueError` at config time.
+
 ## [0.5.0] - 2026-07-05
 
 ### Changed

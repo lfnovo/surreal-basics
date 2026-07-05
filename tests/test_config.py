@@ -102,6 +102,33 @@ class TestConfigFunctions:
         init(persistent=False)
         assert get_config().persistent is False
 
+    def test_auth_scope_default_root(self, reset_config):
+        """Test that auth_scope defaults to root."""
+        assert get_config().auth_scope == "root"
+
+    def test_init_auth_scope(self, reset_config):
+        """Test auth_scope override via init."""
+        init(auth_scope="namespace")
+        assert get_config().auth_scope == "namespace"
+        init(auth_scope="database")
+        assert get_config().auth_scope == "database"
+
+    def test_init_auth_scope_invalid(self, reset_config):
+        """Test that an invalid auth_scope fails fast."""
+        with pytest.raises(ValueError, match="auth_scope"):
+            init(auth_scope="bogus")  # type: ignore[arg-type]
+
+    def test_auth_scope_env(self, reset_config, monkeypatch):
+        """Test auth_scope from SURREAL_AUTH_SCOPE env var."""
+        monkeypatch.setenv("SURREAL_AUTH_SCOPE", "namespace")
+        assert SurrealConfig().auth_scope == "namespace"
+
+    def test_auth_scope_env_invalid(self, reset_config, monkeypatch):
+        """Test that an invalid SURREAL_AUTH_SCOPE fails fast."""
+        monkeypatch.setenv("SURREAL_AUTH_SCOPE", "bogus")
+        with pytest.raises(ValueError, match="SURREAL_AUTH_SCOPE"):
+            SurrealConfig()
+
     def test_init_memory_mode(self, reset_config):
         """Test memory mode via init."""
         init(mode="memory")

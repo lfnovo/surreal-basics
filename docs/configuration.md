@@ -13,6 +13,7 @@ SURREAL_USER=root            # Authentication username
 SURREAL_PASS=root            # Password (alias: SURREAL_PASSWORD)
 SURREAL_NS=test              # Namespace (alias: SURREAL_NAMESPACE)
 SURREAL_DB=test              # Database (alias: SURREAL_DATABASE)
+SURREAL_AUTH_SCOPE=root      # Signin scope: root | namespace | database
 SURREAL_MODE=ws              # ws | http | memory | embedded
 SURREAL_PERSISTENT=true      # Persistent connection (true/false)
 SURREAL_TLS=false            # Use wss:// / https:// (true/false)
@@ -60,6 +61,7 @@ surreal_basics.init(
     password="root",
     namespace="my_ns",
     database="my_db",
+    auth_scope="root",  # "root" | "namespace" | "database"
     mode="ws",
     persistent=True,
     tls=False,
@@ -70,6 +72,29 @@ surreal_basics.init(
 Only the provided parameters are changed - others keep their current value.
 Calling `init(tls=True)` without an explicit port recomputes the default port to
 443 (and back to 8000 for `tls=False`), unless a port was pinned explicitly.
+
+### Auth Scope
+
+By default the signin is **root-level**: only `user`/`password` are sent, and
+`namespace`/`database` are used purely for context selection (`use`). To
+authenticate as a user defined at a lower level
+(`DEFINE USER ... ON NAMESPACE` / `ON DATABASE`), set the auth scope so the
+signin is bound to the configured namespace (and database):
+
+```python
+# Server side:
+#   DEFINE USER app_user ON NAMESPACE my_ns PASSWORD '...' ROLES OWNER;
+surreal_basics.init(
+    user="app_user",
+    password="...",
+    namespace="my_ns",
+    database="my_db",
+    auth_scope="namespace",   # or "database" for DEFINE USER ... ON DATABASE
+)
+```
+
+An invalid scope raises `ValueError` at config time. The scope applies to every
+signin the library performs, including automatic token refresh and reconnects.
 
 ### Mode Switching
 

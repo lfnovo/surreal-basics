@@ -39,18 +39,25 @@ users = await repo_query(
 
 ### repo_create / repo_create_sync
 
-Create a new record. Automatically adds `created` and `updated` timestamps.
+Create a new record. Any `id` key in `data` is stripped (create always generates the ID).
+
+Timestamps are not injected by default — let the schema own them
+(`DEFINE FIELD created ... DEFAULT time::now()`). SurrealDB 3.x SCHEMAFULL
+tables reject fields they don't define, so client-side injection would break
+tables without `created`/`updated`.
 
 ```python
 async def repo_create(
     table: str,
-    data: Dict[str, Any]
+    data: Dict[str, Any],
+    add_timestamps: bool = False
 ) -> Dict[str, Any]
 ```
 
 **Parameters:**
 - `table`: Table name
 - `data`: Record data
+- `add_timestamps`: If True, adds `created` and `updated` fields client-side
 
 **Returns:** Created record with ID
 
@@ -61,7 +68,7 @@ user = await repo_create("user", {
     "email": "john@test.com",
     "age": 25
 })
-# Returns: {"id": "user:abc123", "name": "John", ..., "created": ..., "updated": ...}
+# Returns: {"id": "user:abc123", "name": "John", ...}
 ```
 
 ---
@@ -94,13 +101,14 @@ user = await repo_select("user:abc123")
 
 ### repo_update / repo_update_sync
 
-Update an existing record (merge). Updates the `updated` timestamp.
+Update an existing record (merge).
 
 ```python
 async def repo_update(
     table: str,
     record_id: str,
-    data: Dict[str, Any]
+    data: Dict[str, Any],
+    add_timestamp: bool = False
 ) -> List[Dict[str, Any]]
 ```
 
@@ -108,6 +116,7 @@ async def repo_update(
 - `table`: Table name
 - `record_id`: Record ID (can be "table:id" or just "id")
 - `data`: Data to merge
+- `add_timestamp`: If True, updates the `updated` field client-side
 
 **Returns:** List with updated record
 

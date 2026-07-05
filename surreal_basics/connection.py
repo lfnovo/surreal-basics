@@ -1,5 +1,6 @@
 """Connection management for SurrealDB."""
 
+import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from typing import AsyncGenerator, Generator, Optional
 
@@ -59,6 +60,12 @@ class ConnectionManager:
     _ws_async_token_exp: Optional[float] = None
     _http_sync_token_exp: Optional[float] = None
     _http_async_token_exp: Optional[float] = None
+    # Event loop that owns each persistent async singleton. The SDK binds
+    # futures/receive tasks to the loop it was created on, so reusing the
+    # connection from another loop (e.g. one asyncio.run() per operation)
+    # fails with "attached to a different loop". Checked at checkout.
+    _ws_async_loop: Optional[asyncio.AbstractEventLoop] = None
+    _http_async_loop: Optional[asyncio.AbstractEventLoop] = None
 
     @classmethod
     def _get_credentials(cls) -> dict:
@@ -99,6 +106,7 @@ class ConnectionManager:
             cls._ws_async_connection = None
             cls._ws_async_connected = False
             cls._ws_async_token_exp = None
+            cls._ws_async_loop = None
 
         if cls._http_sync_connection is not None:
             try:
@@ -113,6 +121,7 @@ class ConnectionManager:
             cls._http_async_connection = None
             cls._http_async_connected = False
             cls._http_async_token_exp = None
+            cls._http_async_loop = None
 
         if cls._embedded_sync_connection is not None:
             try:
@@ -137,6 +146,7 @@ class ConnectionManager:
             cls._ws_async_connection = None
             cls._ws_async_connected = False
             cls._ws_async_token_exp = None
+            cls._ws_async_loop = None
 
         if cls._http_async_connection is not None:
             try:
@@ -146,6 +156,7 @@ class ConnectionManager:
             cls._http_async_connection = None
             cls._http_async_connected = False
             cls._http_async_token_exp = None
+            cls._http_async_loop = None
 
         if cls._embedded_async_connection is not None:
             try:
@@ -208,6 +219,18 @@ class ConnectionManager:
             # WebSocket: always use persistent connection
             existing = cls._ws_async_connection
             needs_new = existing is None or not cls._ws_async_connected
+            if existing is not None and cls._ws_async_loop is not (
+                asyncio.get_running_loop()
+            ):
+                # Singleton belongs to another event loop (usually an already
+                # closed one, e.g. a previous asyncio.run()). Its futures are
+                # unusable from here and close() would need the owning loop, so
+                # just drop the reference and rebuild on the current loop.
+                cls._ws_async_connection = None
+                cls._ws_async_connected = False
+                cls._ws_async_token_exp = None
+                existing = None
+                needs_new = True
             if (
                 existing is not None
                 and not needs_new
@@ -230,10 +253,12 @@ class ConnectionManager:
                     ns, db = cls._get_ns_db()
                     await cls._ws_async_connection.use(ns, db)
                     cls._ws_async_connected = True
+                    cls._ws_async_loop = asyncio.get_running_loop()
                 except Exception as e:
                     cls._ws_async_connection = None
                     cls._ws_async_connected = False
                     cls._ws_async_token_exp = None
+                    cls._ws_async_loop = None
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
             try:
@@ -245,6 +270,7 @@ class ConnectionManager:
                 cls._ws_async_connection = None
                 cls._ws_async_connected = False
                 cls._ws_async_token_exp = None
+                cls._ws_async_loop = None
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped: {e}"
                 ) from e
@@ -256,6 +282,7 @@ class ConnectionManager:
                 cls._ws_async_connection = None
                 cls._ws_async_connected = False
                 cls._ws_async_token_exp = None
+                cls._ws_async_loop = None
                 raise SurrealDBTransientError(
                     f"WebSocket connection dropped (request {e})"
                 ) from e
@@ -268,6 +295,7 @@ class ConnectionManager:
                     cls._ws_async_connection = None
                     cls._ws_async_connected = False
                     cls._ws_async_token_exp = None
+                    cls._ws_async_loop = None
                     await cls._close_quietly_async(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"
@@ -278,6 +306,16 @@ class ConnectionManager:
             # HTTP with persistent connection
             existing = cls._http_async_connection
             needs_new = existing is None or not cls._http_async_connected
+            if existing is not None and cls._http_async_loop is not (
+                asyncio.get_running_loop()
+            ):
+                # Singleton belongs to another event loop — same as the WS
+                # case: drop the reference and rebuild on the current loop.
+                cls._http_async_connection = None
+                cls._http_async_connected = False
+                cls._http_async_token_exp = None
+                existing = None
+                needs_new = True
             if (
                 existing is not None
                 and not needs_new
@@ -299,10 +337,12 @@ class ConnectionManager:
                     ns, db = cls._get_ns_db()
                     await cls._http_async_connection.use(ns, db)
                     cls._http_async_connected = True
+                    cls._http_async_loop = asyncio.get_running_loop()
                 except Exception as e:
                     cls._http_async_connection = None
                     cls._http_async_connected = False
                     cls._http_async_token_exp = None
+                    cls._http_async_loop = None
                     raise SurrealDBConnectionError(f"Failed to connect: {e}") from e
 
             try:
@@ -313,6 +353,7 @@ class ConnectionManager:
                     cls._http_async_connection = None
                     cls._http_async_connected = False
                     cls._http_async_token_exp = None
+                    cls._http_async_loop = None
                     await cls._close_quietly_async(conn)
                     raise SurrealDBTransientError(
                         f"Auth token rejected; reconnecting: {e}"

@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   library performs, including token refresh and reconnects. An invalid scope
   raises `ValueError` at config time.
 
+### Fixed
+
+- Persistent async singletons (WS and HTTP) now survive event-loop turnover
+  (#20). The connection is bound to the loop it was created on; reusing it
+  from a new loop — e.g. Streamlit's one-`asyncio.run()`-per-interaction
+  pattern — failed with `RuntimeError: ... attached to a different loop`, and
+  the error wasn't recognized by the self-heal machinery, so every subsequent
+  call failed too. The manager now tracks the owning loop per async singleton
+  and transparently rebuilds the connection when checked out from a different
+  loop (the stale reference is dropped without close, since closing needs the
+  original — usually already closed — loop).
+
 ## [0.5.0] - 2026-07-05
 
 ### Changed

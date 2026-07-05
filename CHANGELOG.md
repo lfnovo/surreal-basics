@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-05
+
+### Changed
+
+- **Breaking:** `repo_create`/`repo_create_sync` no longer inject `created` and
+  `updated` timestamps into the payload by default (#18). SurrealDB 3.x
+  SCHEMAFULL tables reject undefined fields, so the unconditional injection
+  broke inserts into tables that don't define both (e.g. append-only tables
+  with only `created`). Timestamps should be owned by the schema
+  (`DEFINE FIELD created ... DEFAULT time::now()`); the old behavior is
+  available opt-in via `add_timestamps=True`.
+- **Breaking:** `repo_update`/`repo_update_sync` no longer inject `updated`
+  by default, for the same reason. Opt back in with `add_timestamp=True`
+  (mirroring `repo_upsert`).
+- `repo_create`/`repo_create_sync` now strip an `id` key from `data` before
+  insert (as `repo_upsert` already did), keeping create-without-id semantics
+  consistent across the family.
+
 ## [0.4.1] - 2026-06-23
 
 ### Fixed

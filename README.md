@@ -59,7 +59,7 @@ from surreal_basics import repo_query, repo_create, repo_select
 # Simple query
 results = await repo_query("SELECT * FROM user WHERE active = true")
 
-# Create record (automatic timestamps)
+# Create record
 user = await repo_create("user", {"name": "John", "email": "john@test.com"})
 
 # Select by ID
@@ -115,7 +115,7 @@ Benchmarks with 1000 operations each (localhost):
 | Function | Description |
 |----------|-------------|
 | `repo_query(query, vars)` | Execute SurrealQL query |
-| `repo_create(table, data)` | Create record with timestamps |
+| `repo_create(table, data)` | Create record |
 | `repo_select(table_or_id)` | Select records or by ID |
 | `repo_update(table, id, data)` | Update existing record |
 | `repo_upsert(table, id, data)` | Create or update (merge) |

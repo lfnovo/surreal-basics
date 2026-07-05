@@ -39,22 +39,28 @@ def repo_query_sync(
 
 
 @surreal_retry
-def repo_create_sync(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
+def repo_create_sync(
+    table: str, data: Dict[str, Any], add_timestamps: bool = False
+) -> Dict[str, Any]:
     """
     Create a new record in the specified table.
 
-    Automatically adds 'created' and 'updated' timestamps.
+    Timestamps are best left to the schema (DEFAULT/VALUE time::now());
+    SurrealDB 3.x SCHEMAFULL tables reject fields they don't define.
 
     Args:
         table: The table name
         data: The record data
+        add_timestamps: Whether to add 'created' and 'updated' timestamps
 
     Returns:
         The created record
     """
     data = data.copy()
-    data["created"] = datetime.now(timezone.utc)
-    data["updated"] = datetime.now(timezone.utc)
+    data.pop("id", None)
+    if add_timestamps:
+        data["created"] = datetime.now(timezone.utc)
+        data["updated"] = datetime.now(timezone.utc)
 
     with get_sync_connection() as conn:
         with translate_errors():
@@ -101,17 +107,19 @@ def repo_upsert_sync(
 
 @surreal_retry
 def repo_update_sync(
-    table: str, record_id: Union[str, RecordID], data: Dict[str, Any]
+    table: str,
+    record_id: Union[str, RecordID],
+    data: Dict[str, Any],
+    add_timestamp: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Update an existing record by table and id.
-
-    Automatically updates the 'updated' timestamp.
 
     Args:
         table: The table name
         record_id: The record ID (can be just the ID part or full "table:id")
         data: The data to merge
+        add_timestamp: Whether to add/update the 'updated' timestamp
 
     Returns:
         List containing the updated record
@@ -129,7 +137,8 @@ def repo_update_sync(
     rid = ensure_record_id(full_id)
 
     data = data.copy()
-    data["updated"] = datetime.now(timezone.utc)
+    if add_timestamp:
+        data["updated"] = datetime.now(timezone.utc)
 
     with get_sync_connection() as conn:
         with translate_errors():

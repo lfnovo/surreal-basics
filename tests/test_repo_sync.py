@@ -37,15 +37,27 @@ class TestRepoSync:
         assert result[0]["value"] == 42
 
     def test_repo_create_sync(self, surreal_config_ws, cleanup_table_sync):
-        """Test record creation with timestamps."""
+        """Test record creation does not inject timestamps by default."""
         record = repo_create_sync(TEST_TABLE, {"name": "Test User"})
         assert isinstance(record, (dict, list))
         if isinstance(record, list):
             record = record[0]
         assert "id" in record
+        assert "created" not in record
+        assert "updated" not in record
+        assert record["name"] == "Test User"
+
+    def test_repo_create_sync_with_timestamps(
+        self, surreal_config_ws, cleanup_table_sync
+    ):
+        """Test record creation with opt-in timestamps."""
+        record = repo_create_sync(
+            TEST_TABLE, {"name": "Test User"}, add_timestamps=True
+        )
+        if isinstance(record, list):
+            record = record[0]
         assert "created" in record
         assert "updated" in record
-        assert record["name"] == "Test User"
 
     def test_repo_select_all_sync(self, surreal_config_ws, cleanup_table_sync):
         """Test selecting all records from table."""

@@ -40,15 +40,37 @@ class TestRepoAsync:
         assert result[0]["value"] == 42
 
     async def test_repo_create(self, surreal_config_ws, cleanup_table, async_cleanup):
-        """Test record creation with timestamps."""
+        """Test record creation does not inject timestamps by default."""
         record = await repo_create(TEST_TABLE, {"name": "Test User"})
         assert isinstance(record, (dict, list))
         if isinstance(record, list):
             record = record[0]
         assert "id" in record
+        assert "created" not in record
+        assert "updated" not in record
+        assert record["name"] == "Test User"
+
+    async def test_repo_create_with_timestamps(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        """Test record creation with opt-in timestamps."""
+        record = await repo_create(
+            TEST_TABLE, {"name": "Test User"}, add_timestamps=True
+        )
+        if isinstance(record, list):
+            record = record[0]
         assert "created" in record
         assert "updated" in record
-        assert record["name"] == "Test User"
+
+    async def test_repo_create_strips_id(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        """Test that an 'id' key in data is stripped before insert."""
+        record = await repo_create(TEST_TABLE, {"id": "ignored", "name": "No ID"})
+        if isinstance(record, list):
+            record = record[0]
+        assert record["name"] == "No ID"
+        assert str(record["id"]) != f"{TEST_TABLE}:ignored"
 
     async def test_repo_select_all(
         self, surreal_config_ws, cleanup_table, async_cleanup

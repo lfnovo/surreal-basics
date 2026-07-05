@@ -17,7 +17,7 @@
 
 ### CRUD Operations
 
-- `repo_create` / `repo_create_sync` - Create records with automatic timestamps
+- `repo_create` / `repo_create_sync` - Create records (opt-in timestamps via `add_timestamps=True`)
 - `repo_select` / `repo_select_sync` - Fetch by table or specific ID
 - `repo_update` / `repo_update_sync` - Update existing record
 - `repo_upsert` / `repo_upsert_sync` - Create or update (merge)

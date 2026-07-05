@@ -8,6 +8,23 @@ from urllib.parse import urlparse
 # All supported connection modes
 ConnectionMode = Literal["ws", "http", "memory", "embedded"]
 
+# Authentication scope for signin. Root signs in with username/password only;
+# namespace/database additionally bind the signin to the configured
+# namespace (and database), enabling DEFINE USER ... ON NAMESPACE/DATABASE.
+AuthScope = Literal["root", "namespace", "database"]
+
+_AUTH_SCOPES = ("root", "namespace", "database")
+
+
+def _get_auth_scope() -> AuthScope:
+    """Get auth scope from SURREAL_AUTH_SCOPE, failing fast on bad values."""
+    raw = os.getenv("SURREAL_AUTH_SCOPE", "root").strip().lower()
+    if raw not in _AUTH_SCOPES:
+        raise ValueError(
+            f"SURREAL_AUTH_SCOPE must be one of {_AUTH_SCOPES}, got {raw!r}."
+        )
+    return raw  # type: ignore[return-value]
+
 
 def _parse_surreal_url() -> Optional[dict]:
     """Parse SURREAL_URL if set.
@@ -172,6 +189,7 @@ class SurrealConfig:
             os.getenv("SURREAL_DB") or os.getenv("SURREAL_DATABASE") or "test"
         )
     )
+    auth_scope: AuthScope = field(default_factory=_get_auth_scope)
     mode: ConnectionMode = field(default_factory=_get_mode)
     persistent: bool = field(
         default_factory=lambda: (
@@ -220,6 +238,7 @@ def init(
     password: Optional[str] = None,
     namespace: Optional[str] = None,
     database: Optional[str] = None,
+    auth_scope: Optional[AuthScope] = None,
     mode: Optional[ConnectionMode] = None,
     persistent: Optional[bool] = None,
     path: Optional[str] = None,
@@ -235,6 +254,10 @@ def init(
         password: Password (default: env SURREAL_PASS or "root")
         namespace: Namespace (default: env SURREAL_NS or "test")
         database: Database (default: env SURREAL_DB or "test")
+        auth_scope: Signin scope - "root", "namespace", or "database"
+            (default: env SURREAL_AUTH_SCOPE or "root"). Namespace/database
+            scopes bind the signin to the configured namespace (and database),
+            for users defined with DEFINE USER ... ON NAMESPACE/DATABASE.
         mode: Connection mode - "ws", "http", "memory", or "embedded" (default: env SURREAL_MODE or "ws")
         persistent: Use persistent connection (default: True for ws, configurable for http)
         path: File path for embedded mode (default: env SURREAL_PATH or "./surreal.db")
@@ -257,6 +280,12 @@ def init(
         config.namespace = namespace
     if database is not None:
         config.database = database
+    if auth_scope is not None:
+        if auth_scope not in _AUTH_SCOPES:
+            raise ValueError(
+                f"auth_scope must be one of {_AUTH_SCOPES}, got {auth_scope!r}."
+            )
+        config.auth_scope = auth_scope
     if mode is not None:
         config.mode = mode
     if persistent is not None:

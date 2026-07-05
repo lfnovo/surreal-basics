@@ -62,9 +62,19 @@ class ConnectionManager:
 
     @classmethod
     def _get_credentials(cls) -> dict:
-        """Get authentication credentials."""
+        """Get authentication credentials for the configured auth scope.
+
+        Root signs in with username/password only. Namespace/database scopes
+        additionally bind the signin to the configured namespace (and
+        database), as required for DEFINE USER ... ON NAMESPACE/DATABASE.
+        """
         config = get_config()
-        return {"username": config.user, "password": config.password}
+        credentials = {"username": config.user, "password": config.password}
+        if config.auth_scope in ("namespace", "database"):
+            credentials["namespace"] = config.namespace
+        if config.auth_scope == "database":
+            credentials["database"] = config.database
+        return credentials
 
     @classmethod
     def _get_ns_db(cls) -> tuple[str, str]:

@@ -66,8 +66,8 @@ Each migration is wrapped in `BEGIN TRANSACTION; ... CANCEL TRANSACTION;`, so Su
 
 When several environments share one SurrealDB instance under different
 namespaces, a stale `SURREAL_NAMESPACE` is enough to migrate the wrong one.
-`up` and `down` accept optional `--expect-ns` / `--expect-db`, which abort
-before any SQL runs if the resolved target doesn't match:
+`up`, `down` and `status` accept optional `--expect-ns` / `--expect-db`,
+which abort before any SQL runs if the resolved target doesn't match:
 
 ```bash
 sbl-migrate up --expect-ns acme-prod --expect-db app
@@ -198,5 +198,5 @@ The migration system uses the same connection configuration as the rest of `surr
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SURREAL_MIGRATIONS_DIR` | `./migrations` | Default migrations directory for CLI |
-| `SBL_EXPECT_NS` | _(unset)_ | Abort `up`/`down` unless the target namespace matches |
-| `SBL_EXPECT_DB` | _(unset)_ | Abort `up`/`down` unless the target database matches |
+| `SBL_EXPECT_NS` | _(unset)_ | Abort `up`/`down`/`status` unless the target namespace matches |
+| `SBL_EXPECT_DB` | _(unset)_ | Abort `up`/`down`/`status` unless the target database matches |

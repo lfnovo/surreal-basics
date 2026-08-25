@@ -38,6 +38,10 @@ class TestFlags:
         with pytest.raises(SurrealDBMigrationError):
             assert_expected_target(_args(["down", "--expect-ns", "acme-stg"]))
 
+    def test_guard_available_on_status(self):
+        with pytest.raises(SurrealDBMigrationError):
+            assert_expected_target(_args(["status", "--expect-ns", "acme-stg"]))
+
     def test_no_expectation_is_a_noop(self):
         assert_expected_target(_args(["up"]))
 

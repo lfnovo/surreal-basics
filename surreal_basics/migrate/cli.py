@@ -22,7 +22,9 @@ def assert_expected_target(args: argparse.Namespace) -> None:
     namespaces, where a stale ``SURREAL_NAMESPACE`` is enough to migrate the
     wrong one. ``--expect-ns``/``--expect-db`` (or ``SBL_EXPECT_NS``/
     ``SBL_EXPECT_DB`` for CI, where threading flags through is awkward) make
-    the caller state the target up front. The flag wins over the env var, and
+    the caller state the target up front. Checked by ``up``, ``down`` and
+    ``status`` — the read-only command earns it too, since knowing which
+    target you are reading is the point. The flag wins over the env var, and
     with neither set nothing is checked, so existing setups are unaffected.
 
     Raises:
@@ -94,6 +96,7 @@ def cmd_down(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     """Show migration status."""
+    assert_expected_target(args)
     runner = MigrationRunner(args.dir)
     status = runner.status()
 
@@ -148,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     up_parser.add_argument(
         "--expect-ns",
         default=None,
-        help=("Abort unless the target namespace matches (env: SBL_EXPECT_NS)"),
+        help="Abort unless the target namespace matches (env: SBL_EXPECT_NS)",
     )
     up_parser.add_argument(
         "--expect-db",
@@ -168,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     down_parser.add_argument(
         "--expect-ns",
         default=None,
-        help=("Abort unless the target namespace matches (env: SBL_EXPECT_NS)"),
+        help="Abort unless the target namespace matches (env: SBL_EXPECT_NS)",
     )
     down_parser.add_argument(
         "--expect-db",
@@ -181,6 +184,16 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="Show migration status")
     status_parser.add_argument(
         "--dir", default=_get_default_dir(), help="Migrations directory"
+    )
+    status_parser.add_argument(
+        "--expect-ns",
+        default=None,
+        help="Abort unless the target namespace matches (env: SBL_EXPECT_NS)",
+    )
+    status_parser.add_argument(
+        "--expect-db",
+        default=None,
+        help="Abort unless the target database matches (env: SBL_EXPECT_DB)",
     )
     status_parser.set_defaults(func=cmd_status)
 

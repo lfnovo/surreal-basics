@@ -160,6 +160,9 @@ sbl-migrate up --dir ./migrations
 
 # Rollback last migration
 sbl-migrate down --dir ./migrations
+
+# Abort if the target isn't the namespace/database you expect
+sbl-migrate up --expect-ns jota-prod --expect-db app
 ```
 
 ### Programmatic usage

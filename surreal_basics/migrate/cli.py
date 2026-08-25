@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 from ..config import get_config
 from ..exceptions import SurrealDBMigrationError
@@ -13,6 +14,19 @@ from .runner import MigrationRunner
 
 def _get_default_dir() -> str:
     return os.environ.get("SURREAL_MIGRATIONS_DIR", "./migrations")
+
+
+def _expectation(args: argparse.Namespace, attr: str, env_var: str) -> Optional[str]:
+    """Resolve one expectation, flag first, then env var.
+
+    Only an absent value (``None``) means "not stated". An empty string is a
+    stated expectation that can never match a real target, so it fails closed
+    rather than silently disabling the guard.
+    """
+    from_flag = getattr(args, attr, None)
+    if from_flag is not None:
+        return from_flag
+    return os.environ.get(env_var)
 
 
 def assert_expected_target(args: argparse.Namespace) -> None:
@@ -34,20 +48,20 @@ def assert_expected_target(args: argparse.Namespace) -> None:
     checks = (
         (
             "namespace",
-            getattr(args, "expect_ns", None) or os.environ.get("SBL_EXPECT_NS"),
+            _expectation(args, "expect_ns", "SBL_EXPECT_NS"),
             config.namespace,
             "--expect-ns",
         ),
         (
             "database",
-            getattr(args, "expect_db", None) or os.environ.get("SBL_EXPECT_DB"),
+            _expectation(args, "expect_db", "SBL_EXPECT_DB"),
             config.database,
             "--expect-db",
         ),
     )
 
     for label, expected, actual, flag in checks:
-        if expected and expected != actual:
+        if expected is not None and expected != actual:
             raise SurrealDBMigrationError(
                 f"ABORT: target {label} is {actual!r}, but {flag} is "
                 f"{expected!r}. No SQL was executed."

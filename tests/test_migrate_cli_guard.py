@@ -8,8 +8,14 @@ from surreal_basics.migrate.cli import assert_expected_target, build_parser
 
 
 @pytest.fixture(autouse=True)
-def target(reset_config):
-    """Point the resolved config at a known namespace/database."""
+def target(reset_config, monkeypatch):
+    """Pin the resolved target and the ambient expectation env vars.
+
+    A developer or CI shell may well have SBL_EXPECT_* exported — that is the
+    point of the feature — so the tests clear them and set their own.
+    """
+    monkeypatch.delenv("SBL_EXPECT_NS", raising=False)
+    monkeypatch.delenv("SBL_EXPECT_DB", raising=False)
     init(namespace="acme-prod", database="app")
 
 
@@ -60,6 +66,18 @@ class TestEnvVars:
     def test_flag_wins_over_env_var(self, monkeypatch):
         monkeypatch.setenv("SBL_EXPECT_NS", "acme-stg")
         assert_expected_target(_args(["up", "--expect-ns", "acme-prod"]))
+
+    def test_empty_env_var_fails_closed(self, monkeypatch):
+        """An empty value is a stated expectation, not an absent one."""
+        monkeypatch.setenv("SBL_EXPECT_NS", "")
+        with pytest.raises(SurrealDBMigrationError, match="namespace"):
+            assert_expected_target(_args(["up"]))
+
+    def test_empty_flag_does_not_fall_through_to_env_var(self, monkeypatch):
+        """An explicit empty flag wins over the env var and still aborts."""
+        monkeypatch.setenv("SBL_EXPECT_NS", "acme-prod")
+        with pytest.raises(SurrealDBMigrationError, match="namespace"):
+            assert_expected_target(_args(["up", "--expect-ns", ""]))
 
     def test_expect_db_env_var_aborts(self, monkeypatch):
         monkeypatch.setenv("SBL_EXPECT_DB", "other")

@@ -62,6 +62,24 @@ sbl-migrate up --to 2 --dry-run
 
 Each migration is wrapped in `BEGIN TRANSACTION; ... CANCEL TRANSACTION;`, so SurrealDB parses and validates the SQL but rolls back all changes. If a migration has invalid syntax or references non-existent fields/tables, the dry-run will catch it.
 
+### Guard against the wrong target
+
+When several environments share one SurrealDB instance under different
+namespaces, a stale `SURREAL_NAMESPACE` is enough to migrate the wrong one.
+`up`, `down` and `status` accept optional `--expect-ns` / `--expect-db`,
+which abort before any SQL runs if the resolved target doesn't match:
+
+```bash
+sbl-migrate up --expect-ns acme-prod --expect-db app
+
+# Error: ABORT: target namespace is 'acme-stg', but --expect-ns is
+# 'acme-prod'. No SQL was executed.
+```
+
+In CI, where threading flags through is awkward, set `SBL_EXPECT_NS` /
+`SBL_EXPECT_DB` instead — the flags take precedence over them. With neither
+set nothing is checked, so single-environment setups are unaffected.
+
 ### Rollback
 
 ```bash
@@ -198,3 +216,5 @@ The migration system uses the same connection configuration as the rest of `surr
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SURREAL_MIGRATIONS_DIR` | `./migrations` | Default migrations directory for CLI |
+| `SBL_EXPECT_NS` | _(unset)_ | Abort `up`/`down`/`status` unless the target namespace matches |
+| `SBL_EXPECT_DB` | _(unset)_ | Abort `up`/`down`/`status` unless the target database matches |

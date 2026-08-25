@@ -295,9 +295,7 @@ class TestConcurrentRecording:
         assert len(records) == 2
         assert [r["version"] for r in records] == [1, 2]
 
-    def test_recording_tolerates_legacy_random_id_rows(
-        self, idempotent_migrations_dir
-    ):
+    def test_recording_tolerates_legacy_random_id_rows(self, idempotent_migrations_dir):
         """Rows written by older versions used a random record id (#26 review)."""
         runner = MigrationRunner(idempotent_migrations_dir)
         runner.ensure_tracking_table()
@@ -313,9 +311,7 @@ class TestConcurrentRecording:
         applied = replica.run_up()
 
         assert len(applied) == 2
-        records = repo_query_sync(
-            "SELECT * FROM _sbl_migrations WHERE version = 1"
-        )
+        records = repo_query_sync("SELECT * FROM _sbl_migrations WHERE version = 1")
         assert len(records) == 1
 
 

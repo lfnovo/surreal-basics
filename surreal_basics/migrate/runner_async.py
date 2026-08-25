@@ -107,17 +107,34 @@ class AsyncMigrationRunner:
                         f"failed: {e}"
                     ) from e
 
-                # UPSERT against a deterministic record id so concurrent
-                # replicas recording the same migration are a no-op instead of
-                # a unique-index violation (the UNIQUE index stays as a guard).
-                await repo_query(
-                    f"UPSERT type::thing('{_TRACKING_TABLE}', $version) "
-                    f"SET version = $version, name = $name",
-                    {"version": migration.version, "name": migration.name},
-                )
+                await self._record_applied(migration)
             applied.append(migration)
 
         return applied
+
+    async def _record_applied(self, migration: MigrationFile) -> None:
+        """Record a migration as applied, tolerating concurrent writers.
+
+        Uses an UPSERT against a deterministic record id so two replicas
+        recording the same version collapse into a single row instead of
+        hitting the UNIQUE index on ``version``. Rows written by older
+        versions of this library used a random record id, so during a rollout
+        an overlapping replica can still trip the index; in that case the
+        version is already recorded and the error is safe to swallow.
+        """
+        try:
+            await repo_query(
+                f"UPSERT type::thing('{_TRACKING_TABLE}', $version) "
+                f"SET version = $version, name = $name",
+                {"version": migration.version, "name": migration.name},
+            )
+        except Exception:
+            existing = await repo_query(
+                f"SELECT version FROM {_TRACKING_TABLE} WHERE version = $version",
+                {"version": migration.version},
+            )
+            if not existing:
+                raise
 
     async def run_down(self, steps: int = 1) -> list[MigrationFile]:
         """Rollback the last N applied migrations.

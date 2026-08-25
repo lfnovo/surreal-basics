@@ -263,13 +263,30 @@ class TestMigrationRunnerErrors:
 
 
 class TestConcurrentRecording:
-    def test_recording_same_version_twice_does_not_raise(self, migrations_dir):
+    @pytest.fixture
+    def idempotent_migrations_dir(self, tmp_path):
+        """Migrations written idempotently, as docs/migrations.md recommends."""
+        up1 = tmp_path / "001_create_users.surrealql"
+        up1.write_text(
+            "DEFINE TABLE IF NOT EXISTS users SCHEMAFULL;\n"
+            "DEFINE FIELD IF NOT EXISTS name ON users TYPE string;\n"
+            "DEFINE FIELD IF NOT EXISTS email ON users TYPE string;\n"
+        )
+        up2 = tmp_path / "002_add_index.surrealql"
+        up2.write_text(
+            "DEFINE INDEX IF NOT EXISTS idx_email ON users FIELDS email UNIQUE;\n"
+        )
+        return tmp_path
+
+    def test_recording_same_version_twice_does_not_raise(
+        self, idempotent_migrations_dir
+    ):
         """Two replicas can both apply and record the same migration (#24)."""
-        MigrationRunner(migrations_dir).run_up()
+        MigrationRunner(idempotent_migrations_dir).run_up()
 
         # Simulate a second replica that saw the same migrations as pending
         # before the first one finished recording them.
-        replica = MigrationRunner(migrations_dir)
+        replica = MigrationRunner(idempotent_migrations_dir)
         replica.get_applied_versions = lambda: []
         applied = replica.run_up()
 
@@ -277,3 +294,26 @@ class TestConcurrentRecording:
         records = repo_query_sync("SELECT * FROM _sbl_migrations ORDER BY version ASC")
         assert len(records) == 2
         assert [r["version"] for r in records] == [1, 2]
+
+    def test_recording_tolerates_legacy_random_id_rows(
+        self, idempotent_migrations_dir
+    ):
+        """Rows written by older versions used a random record id (#26 review)."""
+        runner = MigrationRunner(idempotent_migrations_dir)
+        runner.ensure_tracking_table()
+
+        # Pre-seed the tracking table the way older releases did.
+        repo_query_sync(
+            "CREATE _sbl_migrations CONTENT $data",
+            {"data": {"version": 1, "name": "create_users"}},
+        )
+
+        replica = MigrationRunner(idempotent_migrations_dir)
+        replica.get_applied_versions = lambda: []
+        applied = replica.run_up()
+
+        assert len(applied) == 2
+        records = repo_query_sync(
+            "SELECT * FROM _sbl_migrations WHERE version = 1"
+        )
+        assert len(records) == 1

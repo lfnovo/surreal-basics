@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from .._sdk import is_duplicate_error
 from ..exceptions import SurrealDBMigrationError, SurrealDBQueryError
 from ..repo_sync import repo_query_sync
 from .discovery import discover_migrations, parse_sql_file
@@ -107,18 +108,30 @@ class MigrationRunner:
                         f"failed: {e}"
                     ) from e
 
-                repo_query_sync(
-                    f"CREATE {_TRACKING_TABLE} CONTENT $data",
-                    {
-                        "data": {
-                            "version": migration.version,
-                            "name": migration.name,
-                        }
-                    },
-                )
+                self._record_applied(migration)
             applied.append(migration)
 
         return applied
+
+    def _record_applied(self, migration: MigrationFile) -> None:
+        """Record a migration as applied, tolerating concurrent writers.
+
+        Uses an UPSERT against a deterministic record id so two replicas
+        recording the same version collapse into a single row instead of
+        hitting the UNIQUE index on ``version``. Rows written by older
+        versions of this library used a random record id, so during a rollout
+        an overlapping replica can still trip the index; a duplicate error
+        means the version is already recorded and is safe to swallow.
+        """
+        try:
+            repo_query_sync(
+                f"UPSERT type::thing('{_TRACKING_TABLE}', $version) "
+                f"SET version = $version, name = $name",
+                {"version": migration.version, "name": migration.name},
+            )
+        except Exception as e:
+            if not is_duplicate_error(e):
+                raise
 
     def run_down(self, steps: int = 1) -> list[MigrationFile]:
         """Rollback the last N applied migrations.

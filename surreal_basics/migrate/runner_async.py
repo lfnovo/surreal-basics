@@ -107,14 +107,13 @@ class AsyncMigrationRunner:
                         f"failed: {e}"
                     ) from e
 
+                # UPSERT against a deterministic record id so concurrent
+                # replicas recording the same migration are a no-op instead of
+                # a unique-index violation (the UNIQUE index stays as a guard).
                 await repo_query(
-                    f"CREATE {_TRACKING_TABLE} CONTENT $data",
-                    {
-                        "data": {
-                            "version": migration.version,
-                            "name": migration.name,
-                        }
-                    },
+                    f"UPSERT type::thing('{_TRACKING_TABLE}', $version) "
+                    f"SET version = $version, name = $name",
+                    {"version": migration.version, "name": migration.name},
                 )
             applied.append(migration)
 

@@ -260,3 +260,20 @@ class TestMigrationRunnerErrors:
             repo_query_sync("DELETE _sbl_migrations WHERE version = 1;")
         except Exception:
             pass
+
+
+class TestConcurrentRecording:
+    def test_recording_same_version_twice_does_not_raise(self, migrations_dir):
+        """Two replicas can both apply and record the same migration (#24)."""
+        MigrationRunner(migrations_dir).run_up()
+
+        # Simulate a second replica that saw the same migrations as pending
+        # before the first one finished recording them.
+        replica = MigrationRunner(migrations_dir)
+        replica.get_applied_versions = lambda: []
+        applied = replica.run_up()
+
+        assert len(applied) == 2
+        records = repo_query_sync("SELECT * FROM _sbl_migrations ORDER BY version ASC")
+        assert len(records) == 2
+        assert [r["version"] for r in records] == [1, 2]

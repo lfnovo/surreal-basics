@@ -158,6 +158,24 @@ Applied migrations are tracked in the `_sbl_migrations` table in your SurrealDB 
 | `name` | string | Migration name |
 | `applied_at` | datetime | When the migration was applied |
 
+## Concurrent Replicas
+
+If several replicas of your app run migrations at startup, they can all see the
+same migration as pending and execute it before any of them records it.
+
+Recording is safe: the tracking record is written with an `UPSERT` against a
+deterministic record id, so a second replica recording the same version is a
+no-op rather than a unique-index violation.
+
+Execution is not serialized, so **write your migrations idempotently** —
+prefer `DEFINE ... IF NOT EXISTS` and avoid statements that break when replayed:
+
+```sql
+DEFINE TABLE IF NOT EXISTS users SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS email ON users TYPE string;
+DEFINE INDEX IF NOT EXISTS idx_email ON users FIELDS email UNIQUE;
+```
+
 ## Error Handling
 
 If a migration fails, it is **not** recorded in the tracking table. Execution stops immediately and a `SurrealDBMigrationError` is raised.

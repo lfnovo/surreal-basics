@@ -2,9 +2,9 @@
 
 import pytest
 
-from surreal_basics import init, repo_query_sync, reset_connections
+from surreal_basics import init, repo_query, repo_query_sync, reset_connections
 from surreal_basics.exceptions import SurrealDBMigrationError
-from surreal_basics.migrate import MigrationRunner
+from surreal_basics.migrate import AsyncMigrationRunner, MigrationRunner
 
 from .conftest import TEST_HOST, TEST_PORT
 
@@ -316,4 +316,64 @@ class TestConcurrentRecording:
         records = repo_query_sync(
             "SELECT * FROM _sbl_migrations WHERE version = 1"
         )
+        assert len(records) == 1
+
+
+class TestConcurrentRecordingAsync:
+    """Same coverage as TestConcurrentRecording, against the async runner."""
+
+    @pytest.fixture
+    def idempotent_migrations_dir(self, tmp_path):
+        up1 = tmp_path / "001_create_users.surrealql"
+        up1.write_text(
+            "DEFINE TABLE IF NOT EXISTS users SCHEMAFULL;\n"
+            "DEFINE FIELD IF NOT EXISTS name ON users TYPE string;\n"
+            "DEFINE FIELD IF NOT EXISTS email ON users TYPE string;\n"
+        )
+        up2 = tmp_path / "002_add_index.surrealql"
+        up2.write_text(
+            "DEFINE INDEX IF NOT EXISTS idx_email ON users FIELDS email UNIQUE;\n"
+        )
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_recording_same_version_twice_does_not_raise(
+        self, idempotent_migrations_dir
+    ):
+        await AsyncMigrationRunner(idempotent_migrations_dir).run_up()
+
+        replica = AsyncMigrationRunner(idempotent_migrations_dir)
+
+        async def _none():
+            return []
+
+        replica.get_applied_versions = _none
+        applied = await replica.run_up()
+
+        assert len(applied) == 2
+        records = await repo_query("SELECT * FROM _sbl_migrations ORDER BY version ASC")
+        assert [r["version"] for r in records] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_recording_tolerates_legacy_random_id_rows(
+        self, idempotent_migrations_dir
+    ):
+        runner = AsyncMigrationRunner(idempotent_migrations_dir)
+        await runner.ensure_tracking_table()
+
+        await repo_query(
+            "CREATE _sbl_migrations CONTENT $data",
+            {"data": {"version": 1, "name": "create_users"}},
+        )
+
+        replica = AsyncMigrationRunner(idempotent_migrations_dir)
+
+        async def _none():
+            return []
+
+        replica.get_applied_versions = _none
+        applied = await replica.run_up()
+
+        assert len(applied) == 2
+        records = await repo_query("SELECT * FROM _sbl_migrations WHERE version = 1")
         assert len(records) == 1

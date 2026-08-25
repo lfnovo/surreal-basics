@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from .._sdk import is_duplicate_error
 from ..exceptions import SurrealDBMigrationError, SurrealDBQueryError
 from ..repo_sync import repo_query_sync
 from .discovery import discover_migrations, parse_sql_file
@@ -119,8 +120,8 @@ class MigrationRunner:
         recording the same version collapse into a single row instead of
         hitting the UNIQUE index on ``version``. Rows written by older
         versions of this library used a random record id, so during a rollout
-        an overlapping replica can still trip the index; in that case the
-        version is already recorded and the error is safe to swallow.
+        an overlapping replica can still trip the index; a duplicate error
+        means the version is already recorded and is safe to swallow.
         """
         try:
             repo_query_sync(
@@ -128,12 +129,8 @@ class MigrationRunner:
                 f"SET version = $version, name = $name",
                 {"version": migration.version, "name": migration.name},
             )
-        except Exception:
-            existing = repo_query_sync(
-                f"SELECT version FROM {_TRACKING_TABLE} WHERE version = $version",
-                {"version": migration.version},
-            )
-            if not existing:
+        except Exception as e:
+            if not is_duplicate_error(e):
                 raise
 
     def run_down(self, steps: int = 1) -> list[MigrationFile]:

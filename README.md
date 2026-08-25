@@ -162,7 +162,7 @@ sbl-migrate up --dir ./migrations
 sbl-migrate down --dir ./migrations
 
 # Abort if the target isn't the namespace/database you expect
-sbl-migrate up --expect-ns jota-prod --expect-db app
+sbl-migrate up --expect-ns acme-prod --expect-db app
 ```
 
 ### Programmatic usage

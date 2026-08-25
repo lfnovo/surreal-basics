@@ -70,10 +70,10 @@ namespaces, a stale `SURREAL_NAMESPACE` is enough to migrate the wrong one.
 before any SQL runs if the resolved target doesn't match:
 
 ```bash
-sbl-migrate up --expect-ns jota-prod --expect-db app
+sbl-migrate up --expect-ns acme-prod --expect-db app
 
-# Error: ABORT: target namespace is 'jota-stg', but --expect-ns is
-# 'jota-prod'. No SQL was executed.
+# Error: ABORT: target namespace is 'acme-stg', but --expect-ns is
+# 'acme-prod'. No SQL was executed.
 ```
 
 In CI, where threading flags through is awkward, set `SBL_EXPECT_NS` /

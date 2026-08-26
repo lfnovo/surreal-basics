@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-26
+
+### Added
+
+- `sbl-migrate up`/`down`/`status` accept optional `--expect-ns` and
+  `--expect-db` flags (or `SBL_EXPECT_NS`/`SBL_EXPECT_DB` for CI) that abort
+  before any SQL runs when the resolved target namespace/database doesn't
+  match (#27). Protects multi-environment instances, where a stale
+  `SURREAL_NAMESPACE` is enough to migrate the wrong one. Flags take
+  precedence over the env vars; with neither set nothing is checked.
+
+### Fixed
+
+- Migration tracking records are now written idempotently (#26, #28). Two
+  replicas starting at the same time both applied the pending migration and
+  the second `CREATE` on `_sbl_migrations` hit the UNIQUE `version` index
+  *after* the migration had already run, turning startup into a crash-loop.
+  The row is now written with an `UPSERT` against a deterministic record id
+  (`_sbl_migrations:<version>`), so concurrent writers collapse into one
+  row; a duplicate error from a legacy random-id row is tolerated. Works on
+  both SurrealDB 2.x and 3.x.
+
 ## [0.6.0] - 2026-07-05
 
 ### Added

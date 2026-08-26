@@ -1,0 +1,23 @@
+CHANGELOG.md
+  s_969494d295c14e::t_3b082c992fc5eb 8-29
+pyproject.toml
+  s_969494d295c14e::t_3b082c992fc5eb 3
+uv.lock
+  s_969494d295c14e::t_9ecefe33412e71 1173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "558be50f811320a2bc8eaebd13fc0185652f4c11",
+  "prompts": {},
+  "sessions": {
+    "s_969494d295c14e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fc2bac3a-93a8-400d-8839-e035604619ed",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Luis Novo <lfnovo@gmail.com>"
+    }
+  }
+}

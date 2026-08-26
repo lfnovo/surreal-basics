@@ -127,7 +127,8 @@ sbl-migrate up --require-baseline
 
 Worth setting in a deploy pipeline that migrates an environment that already
 exists: the failure mode it prevents is a full replay against production. It
-is off by default, so a first run on a new database keeps working.
+is off by default, so a first run on a new database keeps working, and it is
+not checked for `--dry-run`, which applies nothing.
 
 ### Rollback
 
@@ -267,3 +268,4 @@ The migration system uses the same connection configuration as the rest of `surr
 | `SURREAL_MIGRATIONS_DIR` | `./migrations` | Default migrations directory for CLI |
 | `SBL_EXPECT_NS` | _(unset)_ | Abort `up`/`down`/`status` unless the target namespace matches |
 | `SBL_EXPECT_DB` | _(unset)_ | Abort `up`/`down`/`status` unless the target database matches |
+| `SBL_REQUIRE_BASELINE` | _(unset)_ | Abort `up` unless at least one migration is recorded as applied |

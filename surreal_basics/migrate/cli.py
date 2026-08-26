@@ -80,7 +80,8 @@ def assert_baselined(runner: MigrationRunner, args: argparse.Namespace) -> None:
     the whole history, or an existing one that was never baselined and would
     have that history replayed against it. The library cannot tell them apart,
     so the caller states which it expects. Off by default — a first run on a
-    new database is the normal case and must keep working.
+    new database is the normal case and must keep working. Not checked for a
+    dry-run, which applies nothing.
 
     Raises:
         SurrealDBMigrationError: If the tracking table has no rows.
@@ -103,9 +104,14 @@ def cmd_up(args: argparse.Namespace) -> None:
     """Run pending migrations."""
     assert_expected_target(args)
     runner = MigrationRunner(args.dir)
-    assert_baselined(runner, args)
     target = args.to if hasattr(args, "to") and args.to else None
     dry_run = args.dry_run
+
+    # A dry-run persists nothing, so the guard has nothing to protect and its
+    # message would be untrue. Validating pending migrations stays available on
+    # a database that was never baselined.
+    if not dry_run:
+        assert_baselined(runner, args)
 
     applied = runner.run_up(target_version=target, dry_run=dry_run)
 

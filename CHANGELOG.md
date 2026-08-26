@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sbl-migrate up --require-baseline` (or `SBL_REQUIRE_BASELINE=1`) aborts
   when nothing is recorded as applied, instead of applying the full history to
   a database that was never baselined. Off by default, so a first run on a new
-  database is unaffected.
+  database is unaffected, and not checked for `--dry-run`, which applies
+  nothing.
 
 ## [0.7.0] - 2026-08-26
 

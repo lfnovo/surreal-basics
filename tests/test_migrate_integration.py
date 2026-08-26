@@ -5,6 +5,7 @@ import pytest
 from surreal_basics import init, repo_query, repo_query_sync, reset_connections
 from surreal_basics.exceptions import SurrealDBMigrationError
 from surreal_basics.migrate import AsyncMigrationRunner, MigrationRunner
+from surreal_basics.migrate.cli import build_parser, cmd_up
 
 from .conftest import TEST_HOST, TEST_PORT
 
@@ -442,3 +443,28 @@ class TestBaseline:
         assert len(recorded) == 2
         assert await runner.get_latest_version() == 2
         assert "users" not in _db_tables(await repo_query("INFO FOR DB;"))
+
+
+class TestRequireBaselineOnUp:
+    """The guard as `up` actually applies it, not just the assert helper."""
+
+    def _up(self, migrations_dir, extra):
+        args = build_parser().parse_args(["up", "--dir", str(migrations_dir), *extra])
+        cmd_up(args)
+
+    def test_up_aborts_on_empty_tracking(self, migrations_dir):
+        with pytest.raises(SurrealDBMigrationError, match="baseline"):
+            self._up(migrations_dir, ["--require-baseline"])
+
+    def test_dry_run_is_exempt(self, migrations_dir):
+        """A dry-run persists nothing, so there is nothing to guard against."""
+        self._up(migrations_dir, ["--require-baseline", "--dry-run"])
+
+        assert MigrationRunner(migrations_dir).get_applied_versions() == []
+
+    def test_up_proceeds_after_baseline(self, migrations_dir):
+        MigrationRunner(migrations_dir).baseline(target_version=1)
+
+        self._up(migrations_dir, ["--require-baseline"])
+
+        assert MigrationRunner(migrations_dir).get_latest_version() == 2

@@ -118,14 +118,17 @@ class AsyncMigrationRunner:
 
         Uses an UPSERT against a deterministic record id so two replicas
         recording the same version collapse into a single row instead of
-        hitting the UNIQUE index on ``version``. Rows written by older
+        hitting the UNIQUE index on ``version``. The id is interpolated
+        rather than built with ``type::thing``, which SurrealDB 3 renamed
+        to ``type::record``; ``version`` is an int parsed from the file
+        name, so there is nothing to inject. Rows written by older
         versions of this library used a random record id, so during a rollout
         an overlapping replica can still trip the index; a duplicate error
         means the version is already recorded and is safe to swallow.
         """
         try:
             await repo_query(
-                f"UPSERT type::thing('{_TRACKING_TABLE}', $version) "
+                f"UPSERT {_TRACKING_TABLE}:{migration.version} "
                 f"SET version = $version, name = $name",
                 {"version": migration.version, "name": migration.name},
             )

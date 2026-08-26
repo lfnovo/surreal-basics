@@ -29,6 +29,11 @@ def _expectation(args: argparse.Namespace, attr: str, env_var: str) -> Optional[
     return os.environ.get(env_var)
 
 
+def _env_flag(name: str) -> bool:
+    """True when the env var is set to a truthy value."""
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def assert_expected_target(args: argparse.Namespace) -> None:
     """Abort when the resolved target doesn't match what the caller expects.
 
@@ -68,12 +73,45 @@ def assert_expected_target(args: argparse.Namespace) -> None:
             )
 
 
+def assert_baselined(runner: MigrationRunner, args: argparse.Namespace) -> None:
+    """Abort when --require-baseline is set and the tracking table is empty.
+
+    An empty table is ambiguous: it is either a fresh database that should run
+    the whole history, or an existing one that was never baselined and would
+    have that history replayed against it. The library cannot tell them apart,
+    so the caller states which it expects. Off by default — a first run on a
+    new database is the normal case and must keep working. Not checked for a
+    dry-run, which applies nothing.
+
+    Raises:
+        SurrealDBMigrationError: If the tracking table has no rows.
+    """
+    if not (
+        getattr(args, "require_baseline", False) or _env_flag("SBL_REQUIRE_BASELINE")
+    ):
+        return
+    if runner.get_applied_versions():
+        return
+    raise SurrealDBMigrationError(
+        "ABORT: --require-baseline is set but no migration is recorded as "
+        "applied. Running now would apply the full history to this database. "
+        "If its schema is already up to date, run `sbl-migrate baseline` "
+        "first. No SQL was executed."
+    )
+
+
 def cmd_up(args: argparse.Namespace) -> None:
     """Run pending migrations."""
     assert_expected_target(args)
     runner = MigrationRunner(args.dir)
     target = args.to if hasattr(args, "to") and args.to else None
     dry_run = args.dry_run
+
+    # A dry-run persists nothing, so the guard has nothing to protect and its
+    # message would be untrue. Validating pending migrations stays available on
+    # a database that was never baselined.
+    if not dry_run:
+        assert_baselined(runner, args)
 
     applied = runner.run_up(target_version=target, dry_run=dry_run)
 
@@ -129,6 +167,23 @@ def cmd_status(args: argparse.Namespace) -> None:
         print("  No migrations found.")
 
 
+def cmd_baseline(args: argparse.Namespace) -> None:
+    """Record pending migrations as applied, without running them."""
+    assert_expected_target(args)
+    runner = MigrationRunner(args.dir)
+    target = args.to if hasattr(args, "to") and args.to else None
+
+    recorded = runner.baseline(target_version=target)
+
+    if not recorded:
+        print("Nothing to baseline: every migration is already recorded.")
+        return
+
+    for m in recorded:
+        print(f"  [BASELINED] {m.version:03d}_{m.name}")
+    print(f"\n{len(recorded)} migration(s) recorded as applied. No SQL was run.")
+
+
 def cmd_create(args: argparse.Namespace) -> None:
     """Create a new migration."""
     directory = Path(args.dir)
@@ -161,6 +216,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     up_parser.add_argument(
         "--dir", default=_get_default_dir(), help="Migrations directory"
+    )
+    up_parser.add_argument(
+        "--require-baseline",
+        action="store_true",
+        default=False,
+        help=(
+            "Abort if no migration is recorded yet, instead of applying the "
+            "full history to a database that was never baselined "
+            "(env: SBL_REQUIRE_BASELINE)"
+        ),
     )
     up_parser.add_argument(
         "--expect-ns",
@@ -210,6 +275,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Abort unless the target database matches (env: SBL_EXPECT_DB)",
     )
     status_parser.set_defaults(func=cmd_status)
+
+    # baseline
+    baseline_parser = subparsers.add_parser(
+        "baseline",
+        help="Record migrations as applied without running them",
+    )
+    baseline_parser.add_argument(
+        "--to",
+        type=int,
+        default=None,
+        help="Only record migrations up to this version",
+    )
+    baseline_parser.add_argument(
+        "--dir", default=_get_default_dir(), help="Migrations directory"
+    )
+    baseline_parser.add_argument(
+        "--expect-ns",
+        default=None,
+        help="Abort unless the target namespace matches (env: SBL_EXPECT_NS)",
+    )
+    baseline_parser.add_argument(
+        "--expect-db",
+        default=None,
+        help="Abort unless the target database matches (env: SBL_EXPECT_DB)",
+    )
+    baseline_parser.set_defaults(func=cmd_baseline)
 
     # create
     create_parser = subparsers.add_parser("create", help="Create a new migration")

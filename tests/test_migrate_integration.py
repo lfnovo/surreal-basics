@@ -5,6 +5,7 @@ import pytest
 from surreal_basics import init, repo_query, repo_query_sync, reset_connections
 from surreal_basics.exceptions import SurrealDBMigrationError
 from surreal_basics.migrate import AsyncMigrationRunner, MigrationRunner
+from surreal_basics.migrate.cli import build_parser, cmd_up
 
 from .conftest import TEST_HOST, TEST_PORT
 
@@ -65,6 +66,12 @@ def _cleanup():
         repo_query_sync("REMOVE TABLE users;")
     except Exception:
         pass
+
+
+def _db_tables(info):
+    """Table names from an INFO FOR DB result, whatever shape it comes back in."""
+    data = info[0] if isinstance(info, list) else info
+    return list(data["tables"])
 
 
 class TestMigrationRunnerUp:
@@ -373,3 +380,91 @@ class TestConcurrentRecordingAsync:
         assert len(applied) == 2
         records = await repo_query("SELECT * FROM _sbl_migrations WHERE version = 1")
         assert len(records) == 1
+
+
+class TestBaseline:
+    """Adopting tracking on a database whose schema is already up to date."""
+
+    def test_baseline_records_without_running_sql(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+
+        recorded = runner.baseline()
+
+        assert len(recorded) == 2
+        assert runner.get_latest_version() == 2
+        # The migrations define a `users` table; baseline must not have.
+        assert "users" not in _db_tables(repo_query_sync("INFO FOR DB;"))
+
+    def test_baseline_leaves_nothing_pending(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+        runner.baseline()
+        assert runner.get_pending() == []
+
+    def test_baseline_is_idempotent(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+        runner.baseline()
+
+        assert runner.baseline() == []
+        assert len(runner.get_applied_versions()) == 2
+
+    def test_baseline_up_to_target_leaves_the_rest_pending(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+
+        recorded = runner.baseline(target_version=1)
+
+        assert [m.version for m in recorded] == [1]
+        assert [m.version for m in runner.get_pending()] == [2]
+
+    def test_run_up_after_baseline_applies_only_the_rest(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+        runner.baseline(target_version=1)
+
+        applied = runner.run_up()
+
+        assert [m.version for m in applied] == [2]
+
+    def test_baseline_uses_the_deterministic_id(self, migrations_dir):
+        """A later run_up must upsert the same row, not add a second one."""
+        runner = MigrationRunner(migrations_dir)
+        runner.baseline()
+
+        rows = repo_query_sync("SELECT id, version FROM _sbl_migrations;")
+        assert sorted(str(r["id"]) for r in rows) == [
+            "_sbl_migrations:1",
+            "_sbl_migrations:2",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_async_baseline_records_without_running_sql(self, migrations_dir):
+        runner = AsyncMigrationRunner(migrations_dir)
+
+        recorded = await runner.baseline()
+
+        assert len(recorded) == 2
+        assert await runner.get_latest_version() == 2
+        assert "users" not in _db_tables(await repo_query("INFO FOR DB;"))
+
+
+class TestRequireBaselineOnUp:
+    """The guard as `up` actually applies it, not just the assert helper."""
+
+    def _up(self, migrations_dir, extra):
+        args = build_parser().parse_args(["up", "--dir", str(migrations_dir), *extra])
+        cmd_up(args)
+
+    def test_up_aborts_on_empty_tracking(self, migrations_dir):
+        with pytest.raises(SurrealDBMigrationError, match="baseline"):
+            self._up(migrations_dir, ["--require-baseline"])
+
+    def test_dry_run_is_exempt(self, migrations_dir):
+        """A dry-run persists nothing, so there is nothing to guard against."""
+        self._up(migrations_dir, ["--require-baseline", "--dry-run"])
+
+        assert MigrationRunner(migrations_dir).get_applied_versions() == []
+
+    def test_up_proceeds_after_baseline(self, migrations_dir):
+        MigrationRunner(migrations_dir).baseline(target_version=1)
+
+        self._up(migrations_dir, ["--require-baseline"])
+
+        assert MigrationRunner(migrations_dir).get_latest_version() == 2

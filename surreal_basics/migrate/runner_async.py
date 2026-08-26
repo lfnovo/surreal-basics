@@ -113,6 +113,36 @@ class AsyncMigrationRunner:
 
         return applied
 
+    async def baseline(self, target_version: int | None = None) -> list[MigrationFile]:
+        """Record pending migrations as applied, without executing their SQL.
+
+        For adopting migration tracking on a database whose schema already
+        matches the migrations on disk. Without it the tracking table starts
+        empty, every migration looks pending, and the next ``run_up`` replays
+        the whole history against a database that already has it — harmless for
+        ``IF NOT EXISTS`` DDL, destructive for anything that deletes or rebuilds.
+
+        Only ever call this on a database you know is already at that state.
+
+        Args:
+            target_version: If set, only record migrations up to this version,
+                leaving later ones pending. For a database that is mid-history.
+
+        Returns:
+            List of migrations that were recorded. Already-recorded versions are
+            skipped, so calling this twice is a no-op the second time.
+        """
+        await self.ensure_tracking_table()
+        pending = await self.get_pending()
+
+        if target_version is not None:
+            pending = [m for m in pending if m.version <= target_version]
+
+        for migration in pending:
+            await self._record_applied(migration)
+
+        return pending
+
     async def _record_applied(self, migration: MigrationFile) -> None:
         """Record a migration as applied, tolerating concurrent writers.
 

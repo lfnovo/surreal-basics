@@ -163,6 +163,12 @@ sbl-migrate down --dir ./migrations
 
 # Abort if the target isn't the namespace/database you expect
 sbl-migrate up --expect-ns acme-prod --expect-db app
+
+# Adopt tracking on a database whose schema already matches the files
+sbl-migrate baseline --dir ./migrations
+
+# Abort rather than replay the history on a database that was never baselined
+sbl-migrate up --require-baseline
 ```
 
 ### Programmatic usage

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `sbl-migrate baseline` records migrations as applied without running their
+  SQL, for adopting tracking on a database whose schema already matches the
+  files on disk. Without it the tracking table starts empty, every migration
+  looks pending, and the next `up` replays the whole history against a
+  database that already has it. `--to` baselines up to a version and leaves
+  the rest pending. Exposed as `MigrationRunner.baseline()` and
+  `AsyncMigrationRunner.baseline()`.
+- `sbl-migrate up --require-baseline` (or `SBL_REQUIRE_BASELINE=1`) aborts
+  when nothing is recorded as applied, instead of applying the full history to
+  a database that was never baselined. Off by default, so a first run on a new
+  database is unaffected, and not checked for `--dry-run`, which applies
+  nothing.
+
 ## [0.7.0] - 2026-08-26
 
 ### Added

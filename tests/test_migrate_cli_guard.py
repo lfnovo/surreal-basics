@@ -4,7 +4,11 @@ import pytest
 
 from surreal_basics import init
 from surreal_basics.exceptions import SurrealDBMigrationError
-from surreal_basics.migrate.cli import assert_expected_target, build_parser
+from surreal_basics.migrate.cli import (
+    assert_baselined,
+    assert_expected_target,
+    build_parser,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +20,7 @@ def target(reset_config, monkeypatch):
     """
     monkeypatch.delenv("SBL_EXPECT_NS", raising=False)
     monkeypatch.delenv("SBL_EXPECT_DB", raising=False)
+    monkeypatch.delenv("SBL_REQUIRE_BASELINE", raising=False)
     init(namespace="acme-prod", database="app")
 
 
@@ -94,3 +99,47 @@ class TestMessage:
         assert "acme-prod" in message
         assert "acme-stg" in message
         assert "No SQL was executed" in message
+
+
+class TestRequireBaseline:
+    """The --require-baseline guard on `up`.
+
+    Off by default: a first run on a brand-new database is the normal case and
+    must keep working. On, an empty tracking table means the database was never
+    baselined, and applying the full history to it is the accident to prevent.
+    """
+
+    class _Runner:
+        def __init__(self, applied):
+            self._applied = applied
+
+        def get_applied_versions(self):
+            return self._applied
+
+    def test_off_by_default_with_empty_tracking(self):
+        assert_baselined(self._Runner([]), _args(["up"]))
+
+    def test_empty_tracking_aborts_when_required(self):
+        with pytest.raises(SurrealDBMigrationError, match="baseline"):
+            assert_baselined(self._Runner([]), _args(["up", "--require-baseline"]))
+
+    def test_passes_when_something_is_recorded(self):
+        assert_baselined(self._Runner(["001"]), _args(["up", "--require-baseline"]))
+
+    def test_env_var_enables_the_guard(self, monkeypatch):
+        monkeypatch.setenv("SBL_REQUIRE_BASELINE", "true")
+        with pytest.raises(SurrealDBMigrationError, match="baseline"):
+            assert_baselined(self._Runner([]), _args(["up"]))
+
+    def test_env_var_falsy_leaves_it_off(self, monkeypatch):
+        monkeypatch.setenv("SBL_REQUIRE_BASELINE", "no")
+        assert_baselined(self._Runner([]), _args(["up"]))
+
+
+class TestBaselineCommandGuard:
+    def test_baseline_honours_expect_ns(self):
+        with pytest.raises(SurrealDBMigrationError, match="namespace"):
+            assert_expected_target(_args(["baseline", "--expect-ns", "acme-stg"]))
+
+    def test_baseline_matching_namespace_passes(self):
+        assert_expected_target(_args(["baseline", "--expect-ns", "acme-prod"]))

@@ -67,6 +67,12 @@ def _cleanup():
         pass
 
 
+def _db_tables(info):
+    """Table names from an INFO FOR DB result, whatever shape it comes back in."""
+    data = info[0] if isinstance(info, list) else info
+    return list(data["tables"])
+
+
 class TestMigrationRunnerUp:
     def test_run_up_applies_all(self, migrations_dir):
         runner = MigrationRunner(migrations_dir)
@@ -373,3 +379,66 @@ class TestConcurrentRecordingAsync:
         assert len(applied) == 2
         records = await repo_query("SELECT * FROM _sbl_migrations WHERE version = 1")
         assert len(records) == 1
+
+
+class TestBaseline:
+    """Adopting tracking on a database whose schema is already up to date."""
+
+    def test_baseline_records_without_running_sql(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+
+        recorded = runner.baseline()
+
+        assert len(recorded) == 2
+        assert runner.get_latest_version() == 2
+        # The migrations define a `users` table; baseline must not have.
+        assert "users" not in _db_tables(repo_query_sync("INFO FOR DB;"))
+
+    def test_baseline_leaves_nothing_pending(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+        runner.baseline()
+        assert runner.get_pending() == []
+
+    def test_baseline_is_idempotent(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+        runner.baseline()
+
+        assert runner.baseline() == []
+        assert len(runner.get_applied_versions()) == 2
+
+    def test_baseline_up_to_target_leaves_the_rest_pending(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+
+        recorded = runner.baseline(target_version=1)
+
+        assert [m.version for m in recorded] == [1]
+        assert [m.version for m in runner.get_pending()] == [2]
+
+    def test_run_up_after_baseline_applies_only_the_rest(self, migrations_dir):
+        runner = MigrationRunner(migrations_dir)
+        runner.baseline(target_version=1)
+
+        applied = runner.run_up()
+
+        assert [m.version for m in applied] == [2]
+
+    def test_baseline_uses_the_deterministic_id(self, migrations_dir):
+        """A later run_up must upsert the same row, not add a second one."""
+        runner = MigrationRunner(migrations_dir)
+        runner.baseline()
+
+        rows = repo_query_sync("SELECT id, version FROM _sbl_migrations;")
+        assert sorted(str(r["id"]) for r in rows) == [
+            "_sbl_migrations:1",
+            "_sbl_migrations:2",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_async_baseline_records_without_running_sql(self, migrations_dir):
+        runner = AsyncMigrationRunner(migrations_dir)
+
+        recorded = await runner.baseline()
+
+        assert len(recorded) == 2
+        assert await runner.get_latest_version() == 2
+        assert "users" not in _db_tables(await repo_query("INFO FOR DB;"))

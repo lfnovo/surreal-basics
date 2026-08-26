@@ -80,6 +80,55 @@ In CI, where threading flags through is awkward, set `SBL_EXPECT_NS` /
 `SBL_EXPECT_DB` instead — the flags take precedence over them. With neither
 set nothing is checked, so single-environment setups are unaffected.
 
+### Adopt tracking on an existing database
+
+A database that predates this library has no tracking table. Start using
+migrations on it and every migration looks pending, so the next `up` replays
+the whole history against a database that already has it. That is harmless for
+`IF NOT EXISTS` DDL and destructive for anything that deletes or rebuilds.
+
+`baseline` records migrations as applied without running their SQL:
+
+```bash
+sbl-migrate baseline --expect-ns acme-prod
+
+#   [BASELINED] 001_create_users
+#   [BASELINED] 002_add_indexes
+#
+# 2 migration(s) recorded as applied. No SQL was run.
+```
+
+Only run this against a database whose schema already matches those files.
+If it is mid-history, `--to` records up to a version and leaves the rest
+pending:
+
+```bash
+sbl-migrate baseline --to 2      # 003 onwards stays pending
+```
+
+It is a one-shot per database, and safe to repeat: already-recorded versions
+are skipped.
+
+### Refuse to migrate a database that was never baselined
+
+An empty tracking table is ambiguous — either a fresh database that should run
+the whole history, or an existing one that someone forgot to baseline. The
+library cannot tell them apart, so `up` takes `--require-baseline` (or
+`SBL_REQUIRE_BASELINE=1`) for the caller to say which it expects:
+
+```bash
+sbl-migrate up --require-baseline
+
+# Error: ABORT: --require-baseline is set but no migration is recorded as
+# applied. Running now would apply the full history to this database. If its
+# schema is already up to date, run `sbl-migrate baseline` first. No SQL was
+# executed.
+```
+
+Worth setting in a deploy pipeline that migrates an environment that already
+exists: the failure mode it prevents is a full replay against production. It
+is off by default, so a first run on a new database keeps working.
+
 ### Rollback
 
 ```bash

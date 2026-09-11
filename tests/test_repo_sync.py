@@ -12,6 +12,7 @@ from surreal_basics import (
     repo_update_sync,
     repo_upsert_sync,
 )
+from surreal_basics.exceptions import SurrealDBQueryError
 
 TEST_TABLE = "test_table"
 
@@ -35,6 +36,22 @@ class TestRepoSync:
         )
         assert len(result) == 1
         assert result[0]["value"] == 42
+
+    def test_repo_query_raises_on_failure_in_later_statement_sync(
+        self, surreal_config_ws, cleanup_table_sync
+    ):
+        """The SDK only checks the first statement; we must check them all (#35)."""
+        with pytest.raises(SurrealDBQueryError, match="boom"):
+            repo_query_sync(f"DELETE {TEST_TABLE}; THROW 'boom';")
+
+    def test_repo_query_raises_on_aborted_transaction_sync(
+        self, surreal_config_ws, cleanup_table_sync
+    ):
+        with pytest.raises(SurrealDBQueryError, match="stop"):
+            repo_query_sync(
+                f"BEGIN; CREATE {TEST_TABLE} SET name = 'x'; THROW 'stop'; COMMIT;"
+            )
+        assert repo_query_sync(f"SELECT * FROM {TEST_TABLE}") == []
 
     def test_repo_create_sync(self, surreal_config_ws, cleanup_table_sync):
         """Test record creation does not inject timestamps by default."""

@@ -12,6 +12,7 @@ from surreal_basics import (
     repo_update,
     repo_upsert,
 )
+from surreal_basics.exceptions import SurrealDBQueryError
 
 TEST_TABLE = "test_table"
 
@@ -38,6 +39,31 @@ class TestRepoAsync:
         )
         assert len(result) == 1
         assert result[0]["value"] == 42
+
+    async def test_repo_query_multi_statement_returns_first_result(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        await repo_create(TEST_TABLE, {"name": "seed"})
+        result = await repo_query(
+            f"SELECT name FROM {TEST_TABLE}; SELECT count() FROM {TEST_TABLE};"
+        )
+        assert result == [{"name": "seed"}]
+
+    async def test_repo_query_raises_on_failure_in_later_statement(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        """The SDK only checks the first statement; we must check them all (#35)."""
+        with pytest.raises(SurrealDBQueryError, match="boom"):
+            await repo_query(f"DELETE {TEST_TABLE}; THROW 'boom';")
+
+    async def test_repo_query_raises_on_aborted_transaction(
+        self, surreal_config_ws, cleanup_table, async_cleanup
+    ):
+        with pytest.raises(SurrealDBQueryError, match="stop"):
+            await repo_query(
+                f"BEGIN; CREATE {TEST_TABLE} SET name = 'x'; THROW 'stop'; COMMIT;"
+            )
+        assert await repo_query(f"SELECT * FROM {TEST_TABLE}") == []
 
     async def test_repo_create(self, surreal_config_ws, cleanup_table, async_cleanup):
         """Test record creation does not inject timestamps by default."""

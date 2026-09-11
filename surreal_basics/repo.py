@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from surrealdb import RecordID, Table  # type: ignore
 
-from ._sdk import is_duplicate_error, translate_errors
+from ._sdk import first_statement_result, is_duplicate_error, translate_errors
 from .connection import get_async_connection
 from .exceptions import SurrealDBQueryError
 from .retry import surreal_retry_async
@@ -26,15 +26,23 @@ async def repo_query(
         vars: Optional variables for parameterized queries
 
     Returns:
-        List of result dictionaries
+        List of result dictionaries. For a multi-statement query this is the
+        result of the *first* statement; every statement is still checked,
+        and a failure anywhere in the query raises.
 
     Raises:
         SurrealDBTransientError: For retryable errors (lock conflicts)
-        SurrealDBQueryError: For non-retryable query errors
+        SurrealDBQueryError: For non-retryable query errors, including a
+            failure in any statement of a multi-statement query
     """
     async with get_async_connection() as conn:
         with translate_errors():
-            result = await conn.query(query_str, vars)
+            # query_raw + first_statement_result instead of conn.query(): the
+            # SDK's query() only checks the first statement's status, so a
+            # later failure (an aborted transaction, a THROW after a DEFINE)
+            # would be silently swallowed (#35).
+            response = await conn.query_raw(query_str, vars)
+            result = first_statement_result(response)
         return parse_record_ids(result)
 
 

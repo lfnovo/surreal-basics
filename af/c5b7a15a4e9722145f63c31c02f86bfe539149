@@ -1,0 +1,42 @@
+tests/test_repo_sync.py
+  s_756f874e3fa71b::t_e6147e5abe51ad 40-55
+  s_756f874e3fa71b::t_c287989a58c7fd 15
+tests/test_repo.py
+  s_756f874e3fa71b::t_e6147e5abe51ad 15,43-66
+  s_756f874e3fa71b::t_ea6d9fd6235826 67
+surreal_basics/repo.py
+  s_756f874e3fa71b::t_d164c39d88020f 8,40-45
+  s_756f874e3fa71b::t_6450dff7f4e2ed 29-31,35-36
+surreal_basics/_sdk.py
+  s_756f874e3fa71b::t_c287989a58c7fd 131-133
+  s_756f874e3fa71b::t_d164c39d88020f 19-20,95-130,134-136
+  s_756f874e3fa71b::t_0565a9227b8a49 137-138
+docs/api-reference.md
+  s_756f874e3fa71b::t_e6147e5abe51ad 24-27
+tests/test_sdk.py
+  s_756f874e3fa71b::t_e6147e5abe51ad 11,58-126,130-134
+  s_756f874e3fa71b::t_c287989a58c7fd 127-129
+  s_756f874e3fa71b::t_6a6a9cd3b78e63 135-136
+surreal_basics/repo_sync.py
+  s_756f874e3fa71b::t_6450dff7f4e2ed 29-31,35-36
+  s_756f874e3fa71b::t_d164c39d88020f 8,40-45
+tests/test_migrate_integration.py
+  s_756f874e3fa71b::t_e6147e5abe51ad 272-323,332,337-368,371-377
+  s_756f874e3fa71b::t_921238547240a3 324-331,333-336,369-370
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "afc5b7a15a4e9722145f63c31c02f86bfe539149",
+  "prompts": {},
+  "sessions": {
+    "s_756f874e3fa71b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f461bf3b-71c5-4725-8a33-ddb4570b0a14",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Luis Novo <lfnovo@gmail.com>"
+    }
+  }
+}

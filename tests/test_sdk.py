@@ -8,6 +8,7 @@ import pytest
 from surrealdb.errors import ConnectionUnavailableError, SurrealError
 
 from surreal_basics._sdk import (
+    first_statement_result,
     is_auth_rejected_error,
     is_dropped_request_keyerror,
     is_duplicate_error,
@@ -52,6 +53,85 @@ class TestTranslateErrors:
         with pytest.raises(KeyError):
             with translate_errors():
                 raise KeyError("00000000-aaaa-bbbb-cccc-000000000000")
+
+
+class TestFirstStatementResult:
+    """first_statement_result checks every statement of a query_raw response.
+
+    The SDK's query() only looks at result[0], which hides failures in later
+    statements — an aborted transaction was recorded as applied (#35).
+    """
+
+    @staticmethod
+    def _ok(result=None):
+        return {"status": "OK", "result": result, "time": "0ns"}
+
+    @staticmethod
+    def _err(message):
+        return {"status": "ERR", "result": message, "time": "0ns"}
+
+    def test_returns_first_statement_result_when_all_ok(self):
+        response = {"result": [self._ok([{"id": "t:1"}]), self._ok([])]}
+        assert first_statement_result(response) == [{"id": "t:1"}]
+
+    def test_empty_result_list_returns_none(self):
+        # e.g. "BEGIN; COMMIT;" on a 2.x server yields no statement results.
+        assert first_statement_result({"result": []}) is None
+
+    def test_top_level_rpc_error_raises(self):
+        response = {"error": {"code": -32000, "message": "Parse error: boom"}}
+        with pytest.raises(SurrealError, match="Parse error"):
+            first_statement_result(response)
+
+    def test_missing_result_key_raises(self):
+        with pytest.raises(SurrealError, match="no result"):
+            first_statement_result({"id": "x"})
+
+    def test_failure_after_ok_first_statement_raises(self):
+        response = {"result": [self._ok(), self._err("An error occurred: boom")]}
+        with pytest.raises(SurrealError, match="boom"):
+            first_statement_result(response)
+
+    def test_aborted_transaction_raises_the_real_cause(self):
+        # Shape SurrealDB 3.x returns for BEGIN; DEFINE ...; THROW 'stop'; COMMIT;
+        response = {
+            "result": [
+                self._ok(),
+                self._err("The query was not executed due to a failed transaction"),
+                self._err("An error occurred: stop"),
+                self._err(
+                    "Cannot COMMIT: the transaction was aborted due to a prior error"
+                ),
+            ]
+        }
+        with pytest.raises(SurrealError, match="stop"):
+            first_statement_result(response)
+
+    def test_only_echoes_raises_the_echo(self):
+        # A dry-run's CANCEL TRANSACTION: every statement is a "not executed"
+        # echo and there is no more specific error to prefer.
+        response = {
+            "result": [
+                self._ok(),
+                self._err("The query was not executed due to a cancelled transaction"),
+                self._ok(),
+            ]
+        }
+        with pytest.raises(SurrealError, match="cancelled transaction"):
+            first_statement_result(response)
+
+    def test_retryable_later_statement_becomes_transient(self):
+        response = {
+            "result": [
+                self._ok(),
+                self._err(
+                    "Failed to commit transaction due to a read or write conflict. This transaction can be retried"
+                ),
+            ]
+        }
+        with pytest.raises(SurrealDBTransientError):
+            with translate_errors():
+                first_statement_result(response)
 
 
 class TestIsDroppedRequestKeyError:

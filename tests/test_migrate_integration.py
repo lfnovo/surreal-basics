@@ -269,6 +269,112 @@ class TestMigrationRunnerErrors:
             pass
 
 
+class TestFailureInLaterStatement:
+    """A failure past the first statement must not be recorded as applied (#35).
+
+    The SDK's query() only checks the first statement's status. On SurrealDB
+    3.x ``BEGIN`` reports OK, so an aborted transaction looked like a success
+    and the migration was recorded; on both 2.x and 3.x the same happens for a
+    plain ``DEFINE ...; THROW ...;`` outside a transaction.
+    """
+
+    ABORTED_TX = "BEGIN; DEFINE TABLE users SCHEMAFULL; THROW 'stop'; COMMIT;\n"
+    FIXED = "DEFINE TABLE users SCHEMAFULL;\n"
+
+    @pytest.fixture
+    def aborted_dir(self, tmp_path):
+        (tmp_path / "001_failing.surrealql").write_text(self.ABORTED_TX)
+        return tmp_path
+
+    def test_aborted_transaction_is_not_recorded(self, aborted_dir):
+        runner = MigrationRunner(aborted_dir)
+
+        with pytest.raises(SurrealDBMigrationError, match="stop") as exc_info:
+            runner.run_up()
+
+        assert exc_info.value.__cause__ is not None
+        status = runner.status()
+        assert status["current_version"] == 0
+        assert [m.version for m in status["pending"]] == [1]
+        assert "users" not in _db_tables(repo_query_sync("INFO FOR DB;"))
+
+    def test_corrected_file_then_applies_once(self, aborted_dir):
+        runner = MigrationRunner(aborted_dir)
+        with pytest.raises(SurrealDBMigrationError):
+            runner.run_up()
+
+        (aborted_dir / "001_failing.surrealql").write_text(self.FIXED)
+
+        assert [m.version for m in runner.run_up()] == [1]
+        assert runner.run_up() == []
+        assert runner.get_latest_version() == 1
+        assert "users" in _db_tables(repo_query_sync("INFO FOR DB;"))
+
+    def test_failure_outside_transaction_is_not_recorded(self, tmp_path):
+        (tmp_path / "001_partial.surrealql").write_text(
+            "DEFINE TABLE users SCHEMAFULL;\nTHROW 'boom';\n"
+        )
+        runner = MigrationRunner(tmp_path)
+
+        with pytest.raises(SurrealDBMigrationError, match="boom"):
+            runner.run_up()
+
+        assert runner.get_latest_version() == 0
+
+    @pytest.fixture
+    def throwing_dir(self, tmp_path):
+        # No transaction of its own: dry-run wraps the file in BEGIN ... CANCEL,
+        # and SurrealDB rejects nested transactions outright.
+        (tmp_path / "001_throwing.surrealql").write_text(
+            "DEFINE TABLE users SCHEMAFULL;\nTHROW 'stop';\n"
+        )
+        return tmp_path
+
+    def test_dry_run_reports_failure_in_later_statement(self, throwing_dir):
+        """Inside dry-run's BEGIN, the first result is BEGIN's OK on 3.x."""
+        runner = MigrationRunner(throwing_dir)
+
+        with pytest.raises(SurrealDBMigrationError, match="failed validation.*stop"):
+            runner.run_up(dry_run=True)
+
+        assert runner.get_latest_version() == 0
+
+    def test_failed_rollback_keeps_the_record(self, tmp_path):
+        (tmp_path / "001_create_users.surrealql").write_text(self.FIXED)
+        (tmp_path / "001_create_users_down.surrealql").write_text(
+            "BEGIN; REMOVE TABLE users; THROW 'stop'; COMMIT;\n"
+        )
+        runner = MigrationRunner(tmp_path)
+        runner.run_up()
+
+        with pytest.raises(SurrealDBMigrationError, match="stop"):
+            runner.run_down()
+
+        assert runner.get_latest_version() == 1
+        assert "users" in _db_tables(repo_query_sync("INFO FOR DB;"))
+
+    @pytest.mark.asyncio
+    async def test_async_aborted_transaction_is_not_recorded(self, aborted_dir):
+        runner = AsyncMigrationRunner(aborted_dir)
+
+        with pytest.raises(SurrealDBMigrationError, match="stop"):
+            await runner.run_up()
+
+        status = await runner.status()
+        assert status["current_version"] == 0
+        assert [m.version for m in status["pending"]] == [1]
+        assert "users" not in _db_tables(await repo_query("INFO FOR DB;"))
+
+    @pytest.mark.asyncio
+    async def test_async_dry_run_reports_failure_in_later_statement(self, throwing_dir):
+        runner = AsyncMigrationRunner(throwing_dir)
+
+        with pytest.raises(SurrealDBMigrationError, match="failed validation.*stop"):
+            await runner.run_up(dry_run=True)
+
+        assert await runner.get_latest_version() == 0
+
+
 class TestConcurrentRecording:
     @pytest.fixture
     def idempotent_migrations_dir(self, tmp_path):

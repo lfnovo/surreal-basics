@@ -21,7 +21,10 @@ async def repo_query(
 - `query_str`: SurrealQL query
 - `vars`: Variables for parameterized queries
 
-**Returns:** List of results
+**Returns:** List of results. For a multi-statement query, the result of the
+first statement. Every statement is checked regardless: a failure anywhere in
+the query (including a `THROW` inside a `BEGIN ... COMMIT` block) raises
+`SurrealDBQueryError` instead of being silently dropped.
 
 **Example:**
 ```python

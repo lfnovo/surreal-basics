@@ -16,6 +16,8 @@ from typing import Any, Iterator, Optional
 from surrealdb.errors import (  # type: ignore
     ConnectionUnavailableError,
     SurrealError,
+    parse_query_error,
+    parse_rpc_error,
 )
 
 from .exceptions import SurrealDBQueryError, SurrealDBTransientError
@@ -88,6 +90,50 @@ def translate_errors() -> Iterator[None]:
         if _RETRYABLE_MARKER in msg.lower():
             raise SurrealDBTransientError(msg) from e
         raise SurrealDBQueryError(msg) from e
+
+
+# Message SurrealDB gives every statement that was skipped because its
+# transaction was already aborted or cancelled. It is an echo of the failure,
+# not the failure itself.
+_NOT_EXECUTED_MARKER = "was not executed due to"
+
+
+def first_statement_result(response: dict[str, Any]) -> Any:
+    """Validate a ``query_raw`` response and return the first statement's result.
+
+    The surrealdb 2.x ``query()`` only inspects ``response["result"][0]``, so a
+    multi-statement query whose *first* statement succeeds hides every later
+    failure. Inside a transaction that is the norm on SurrealDB 3.x, where
+    ``BEGIN`` itself reports ``OK`` — an aborted migration then looks like a
+    success (#35). ``query_raw`` skips the SDK's checks entirely, including the
+    top-level RPC error (parse errors, permission errors), so this reproduces
+    them over *every* statement.
+
+    When several statements report ``ERR``, the one that names the actual
+    failure is raised in preference to the "not executed due to a failed/
+    cancelled transaction" echoes, so the caller sees ``THROW 'stop'`` rather
+    than the fallout. Raises the SDK's own ``SurrealError`` subclasses; call it
+    inside ``translate_errors()`` to map them to ours.
+
+    Returns the first statement's result, matching what ``query()`` returned
+    before, so callers' result semantics are unchanged. ``None`` when the
+    query produced no statement results at all (e.g. ``BEGIN; COMMIT;`` on 2.x).
+    """
+    error = response.get("error")
+    if error is not None:
+        raise parse_rpc_error(error)
+    if "result" not in response:
+        raise SurrealError(f"no result query: {response}")
+    statements = response["result"]
+    failed = [s for s in statements if s.get("status") == "ERR"]
+    if failed:
+        specific = [
+            s
+            for s in failed
+            if _NOT_EXECUTED_MARKER not in str(s.get("result")).lower()
+        ]
+        raise parse_query_error((specific or failed)[0])
+    return statements[0]["result"] if statements else None
 
 
 def is_duplicate_error(e: BaseException) -> bool:

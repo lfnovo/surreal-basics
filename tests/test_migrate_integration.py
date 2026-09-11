@@ -366,6 +366,33 @@ class TestFailureInLaterStatement:
         assert "users" not in _db_tables(await repo_query("INFO FOR DB;"))
 
     @pytest.mark.asyncio
+    async def test_async_failure_outside_transaction_is_not_recorded(self, tmp_path):
+        (tmp_path / "001_partial.surrealql").write_text(
+            "DEFINE TABLE users SCHEMAFULL;\nTHROW 'boom';\n"
+        )
+        runner = AsyncMigrationRunner(tmp_path)
+
+        with pytest.raises(SurrealDBMigrationError, match="boom"):
+            await runner.run_up()
+
+        assert await runner.get_latest_version() == 0
+
+    @pytest.mark.asyncio
+    async def test_async_failed_rollback_keeps_the_record(self, tmp_path):
+        (tmp_path / "001_create_users.surrealql").write_text(self.FIXED)
+        (tmp_path / "001_create_users_down.surrealql").write_text(
+            "BEGIN; REMOVE TABLE users; THROW 'stop'; COMMIT;\n"
+        )
+        runner = AsyncMigrationRunner(tmp_path)
+        await runner.run_up()
+
+        with pytest.raises(SurrealDBMigrationError, match="stop"):
+            await runner.run_down()
+
+        assert await runner.get_latest_version() == 1
+        assert "users" in _db_tables(await repo_query("INFO FOR DB;"))
+
+    @pytest.mark.asyncio
     async def test_async_dry_run_reports_failure_in_later_statement(self, throwing_dir):
         runner = AsyncMigrationRunner(throwing_dir)
 

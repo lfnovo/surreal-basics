@@ -24,7 +24,9 @@ async def repo_query(
 **Returns:** List of results. For a multi-statement query, the result of the
 first statement. Every statement is checked regardless: a failure anywhere in
 the query (including a `THROW` inside a `BEGIN ... COMMIT` block) raises
-`SurrealDBQueryError` instead of being silently dropped.
+instead of being silently dropped: `SurrealDBQueryError`, or
+`SurrealDBTransientError` for a retryable lock conflict, which is retried
+automatically like any other.
 
 **Example:**
 ```python

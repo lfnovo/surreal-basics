@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `repo_query`/`repo_query_sync` (and therefore every migration path built on
+  them) no longer miss a failure past the first statement of a query (#35).
+  The surrealdb 2.x SDK only checks the first statement's status; on SurrealDB
+  3.x `BEGIN` itself reports `OK`, so a migration whose transaction was
+  aborted looked like a success and was recorded as applied while its schema
+  change never happened. Outside a transaction the same happened on 2.x and
+  3.x whenever the first statement succeeded and a later one failed, and
+  `--dry-run` shared the blind spot. Every statement is now checked, and the
+  error names the statement that actually failed rather than the "not executed
+  due to a failed transaction" echo. The returned value is still the first
+  statement's result.
+
 ## [0.8.0] - 2026-08-26
 
 ### Added

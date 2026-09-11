@@ -1,0 +1,21 @@
+docs/api-reference.md
+  s_756f874e3fa71b::t_2971afd56995bc 27-29
+tests/test_migrate_integration.py
+  s_756f874e3fa71b::t_2641145192a1f9 368-394
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c82d611e68e2afaabaf394dc39fbc44edddfc5c4",
+  "prompts": {},
+  "sessions": {
+    "s_756f874e3fa71b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f461bf3b-71c5-4725-8a33-ddb4570b0a14",
+        "model": "unknown"
+      },
+      "human_author": "Luis Novo <lfnovo@gmail.com>"
+    }
+  }
+}

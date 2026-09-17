@@ -133,6 +133,19 @@ class TestUseTarget:
         with use_target(None):
             assert current_target() is None
 
+    def test_one_instance_can_be_re_entered(self):
+        tenant = use_target(namespace="t1")
+        with tenant:
+            with use_target(namespace="t2"):
+                with tenant:
+                    assert current_target().namespace == "t1"
+                assert current_target().namespace == "t2"
+            assert current_target().namespace == "t1"
+        assert current_target() is None
+        with tenant:
+            assert current_target().namespace == "t1"
+        assert current_target() is None
+
     def test_target_and_fields_are_exclusive(self):
         with pytest.raises(TypeError):
             use_target(Target(namespace="a"), database="b")
@@ -185,13 +198,18 @@ class _FakeSync:
 
 
 class _FakeAsync(_FakeSync):
+    # Each call yields to the loop, like a real round trip, so concurrent
+    # checkouts actually interleave.
     async def signin(self, credentials):  # type: ignore[override]
+        await asyncio.sleep(0)
         self.signed_in_with = credentials
 
     async def authenticate(self, token):  # type: ignore[override]
+        await asyncio.sleep(0)
         self.token = token
 
     async def use(self, ns, db):  # type: ignore[override]
+        await asyncio.sleep(0)
         self.ns_db = (ns, db)
 
     async def close(self):  # type: ignore[override]
@@ -212,7 +230,7 @@ def fake_server(reset_config, monkeypatch):
 
 class TestPoolSync:
     def _open(self, ns):
-        with ConnectionManager.get_sync_connection(Target(namespace=ns)) as conn:
+        with ConnectionManager.get_sync_connection(using=Target(namespace=ns)) as conn:
             return conn
 
     def test_one_connection_per_target(self, fake_server):
@@ -230,26 +248,45 @@ class TestPoolSync:
         assert len(ConnectionManager._sync_slots) == 2
 
     def test_never_evicts_a_connection_in_use(self, fake_server):
-        with ConnectionManager.get_sync_connection(Target(namespace="t1")) as held:
+        with ConnectionManager.get_sync_connection(
+            using=Target(namespace="t1")
+        ) as held:
             self._open("t2")
             self._open("t3")
             assert not held.closed
         assert not held.closed
 
     def test_token_authenticates_instead_of_signing_in(self, fake_server):
-        with ConnectionManager.get_sync_connection(Target(token="jwt")) as conn:
+        with ConnectionManager.get_sync_connection(using=Target(token="jwt")) as conn:
             assert conn.token == "jwt"
             assert conn.signed_in_with is None
 
     def test_separate_credentials_get_separate_connections(self, fake_server):
         a = Target(namespace="t1", username="a", password="pa")
         b = Target(namespace="t1", username="b", password="pb")
-        with ConnectionManager.get_sync_connection(a) as conn_a:
+        with ConnectionManager.get_sync_connection(using=a) as conn_a:
             pass
-        with ConnectionManager.get_sync_connection(b) as conn_b:
+        with ConnectionManager.get_sync_connection(using=b) as conn_b:
             pass
         assert conn_a is not conn_b
         assert conn_b.signed_in_with == {"username": "b", "password": "pb"}
+
+    def test_auth_rejection_waits_for_other_holders(self, fake_server):
+        """A rejected slot leaves rotation at once but closes on last release."""
+        from surreal_basics.exceptions import (
+            SurrealDBQueryError,
+            SurrealDBTransientError,
+        )
+
+        with ConnectionManager.get_sync_connection() as held:
+            with pytest.raises(SurrealDBTransientError):
+                with ConnectionManager.get_sync_connection() as same:
+                    assert same is held
+                    raise SurrealDBQueryError("IAM error: Not enough permissions")
+            assert not held.closed  # still in use by the outer block
+            with ConnectionManager.get_sync_connection() as fresh:
+                assert fresh is not held
+        assert held.closed
 
     def test_config_change_reaches_the_connection(self, fake_server):
         """#33: changing the configured namespace used to be silently ignored."""
@@ -264,7 +301,9 @@ class TestPoolSync:
 
 class TestPoolAsync:
     async def _open(self, ns):
-        async with ConnectionManager.get_async_connection(Target(namespace=ns)) as c:
+        async with ConnectionManager.get_async_connection(
+            using=Target(namespace=ns)
+        ) as c:
             return c
 
     @pytest.mark.asyncio
@@ -278,17 +317,58 @@ class TestPoolAsync:
     @pytest.mark.asyncio
     async def test_never_evicts_a_connection_in_use(self, fake_server):
         async with ConnectionManager.get_async_connection(
-            Target(namespace="t1")
+            using=Target(namespace="t1")
         ) as held:
             await self._open("t2")
             await self._open("t3")
             assert not held.closed
 
     @pytest.mark.asyncio
+    async def test_auth_rejection_waits_for_other_holders(self, fake_server):
+        from surreal_basics.exceptions import (
+            SurrealDBQueryError,
+            SurrealDBTransientError,
+        )
+
+        async with ConnectionManager.get_async_connection() as held:
+            with pytest.raises(SurrealDBTransientError):
+                async with ConnectionManager.get_async_connection() as same:
+                    assert same is held
+                    raise SurrealDBQueryError("IAM error: Not enough permissions")
+            assert not held.closed
+            async with ConnectionManager.get_async_connection() as fresh:
+                assert fresh is not held
+        assert held.closed
+
+    @pytest.mark.asyncio
+    async def test_evicting_another_loops_connection_closes_it_there(self, fake_server):
+        import threading
+
+        other = asyncio.new_event_loop()
+        thread = threading.Thread(target=other.run_forever, daemon=True)
+        thread.start()
+        try:
+            foreign = asyncio.run_coroutine_threadsafe(self._open("t1"), other).result(
+                timeout=5
+            )
+            await self._open("t2")
+            await self._open("t3")  # over the cap of two: t1 is the oldest
+            for _ in range(100):
+                if foreign.closed:
+                    break
+                await asyncio.sleep(0.01)
+            assert foreign.closed
+        finally:
+            other.call_soon_threadsafe(other.stop)
+            thread.join(timeout=5)
+            other.close()
+
+    @pytest.mark.asyncio
     async def test_concurrent_first_use_shares_one_connection(self, fake_server):
         conns = await asyncio.gather(*(self._open("t1") for _ in range(5)))
         assert len({id(c) for c in conns}) == 1
         assert not conns[0].closed
+        assert len(ConnectionManager._async_slots) == 1
 
 
 class TestMemoryEngine:
@@ -299,7 +379,7 @@ class TestMemoryEngine:
         assert len(repo_query_sync("SELECT * FROM item", using=a)) == 1
 
     def test_refuses_a_second_target_while_one_is_held(self, surreal_config_memory):
-        with ConnectionManager.get_sync_connection(Target(namespace="mem_a")):
+        with ConnectionManager.get_sync_connection(using=Target(namespace="mem_a")):
             with pytest.raises(SurrealDBConnectionError, match="one target at a time"):
                 repo_query_sync("RETURN 1", using=Target(namespace="mem_b"))
             # The same target nests fine.

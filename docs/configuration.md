@@ -189,9 +189,14 @@ await reset_connections_async()
 
 ### Connection limit
 
-With [targets](targets.md), each target has its own persistent connection.
-Idle ones beyond `ConnectionManager.max_connections` (default 32) are closed,
-least recently used first:
+In the persistent network modes (WebSocket, and HTTP with `persistent=True`),
+each [target](targets.md) has its own connection, and async connections also
+belong to the event loop that opened them. Stateless HTTP opens one per
+operation; memory and embedded modes share one in-process engine.
+
+Idle connections beyond `ConnectionManager.max_connections` (default 32) are
+closed, least recently used first, on the event loop that owns them.
+Connections in use are never closed under a query:
 
 ```python
 from surreal_basics import ConnectionManager
@@ -211,7 +216,7 @@ async with get_async_connection() as conn:
     result = await conn.query("SELECT * FROM user")
 
 # Against another target
-async with get_async_connection(Target(namespace="tenant_a")) as conn:
+async with get_async_connection(using=Target(namespace="tenant_a")) as conn:
     result = await conn.query("SELECT * FROM user")
 
 with get_sync_connection() as conn:

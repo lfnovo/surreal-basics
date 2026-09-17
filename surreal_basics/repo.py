@@ -41,7 +41,7 @@ async def repo_query(
         SurrealDBQueryError: For non-retryable query errors, including a
             failure in any statement of a multi-statement query
     """
-    async with get_async_connection(using) as conn:
+    async with get_async_connection(using=using) as conn:
         with translate_errors():
             # query_raw + first_statement_result instead of conn.query(): the
             # SDK's query() only checks the first statement's status, so a
@@ -82,7 +82,7 @@ async def repo_create(
         data["created"] = datetime.now(timezone.utc)
         data["updated"] = datetime.now(timezone.utc)
 
-    async with get_async_connection(using) as conn:
+    async with get_async_connection(using=using) as conn:
         with translate_errors():
             result = await conn.insert(table, data)
         return parse_record_ids(result)
@@ -170,7 +170,7 @@ async def repo_update(
     if add_timestamp:
         data["updated"] = datetime.now(timezone.utc)
 
-    async with get_async_connection(using) as conn:
+    async with get_async_connection(using=using) as conn:
         with translate_errors():
             result = await conn.merge(rid, data)
     parsed = parse_record_ids(result)
@@ -192,7 +192,7 @@ async def repo_delete(
     Returns:
         The deleted record or None
     """
-    async with get_async_connection(using) as conn:
+    async with get_async_connection(using=using) as conn:
         with translate_errors():
             return await conn.delete(record_id)
 
@@ -218,7 +218,7 @@ async def repo_insert(
     Returns:
         List of created records
     """
-    async with get_async_connection(using) as conn:
+    async with get_async_connection(using=using) as conn:
         try:
             with translate_errors():
                 result = await conn.insert(table, data)
@@ -264,7 +264,7 @@ async def repo_relate(
         "in": ensure_record_id(source),
         "out": ensure_record_id(target),
     }
-    async with get_async_connection(using) as conn:
+    async with get_async_connection(using=using) as conn:
         with translate_errors():
             result = await conn.insert_relation(relationship, payload)
     parsed = parse_record_ids(result)
@@ -293,7 +293,7 @@ async def repo_select(
     if isinstance(table_or_id, str) and ":" in table_or_id:
         table_or_id = ensure_record_id(table_or_id)
 
-    async with get_async_connection(using) as conn:
+    async with get_async_connection(using=using) as conn:
         with translate_errors():
             result = await conn.select(table_or_id)
         parsed = parse_record_ids(result)

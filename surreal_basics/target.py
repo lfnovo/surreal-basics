@@ -108,25 +108,32 @@ class use_target:
 
     The binding is a ``ContextVar``: tasks created inside the block inherit it,
     and concurrent tasks or threads outside it never observe it.
+
+    One instance can be re-entered (nested, or reused for later blocks), but
+    must not be shared by concurrent tasks or threads: create one per block
+    there, which ``use_target(...)`` inline already does.
     """
 
     def __init__(self, target: Optional[Target] = None, **fields: Any) -> None:
         if target is not None and fields:
             raise TypeError("use_target() takes a Target or keyword fields, not both.")
         self._target = Target(**fields) if fields else target
-        self._token: Optional[Token[Optional[Target]]] = None
+        # One entry per active __enter__, so re-entering the same instance
+        # resets each binding in the right order.
+        self._tokens: list[Optional[Token[Optional[Target]]]] = []
 
     def __enter__(self) -> Optional[Target]:
         if self._target is None:
+            self._tokens.append(None)
             return _current.get()
         bound = self._target.over(_current.get())
-        self._token = _current.set(bound)
+        self._tokens.append(_current.set(bound))
         return bound
 
     def __exit__(self, *exc: object) -> None:
-        if self._token is not None:
-            _current.reset(self._token)
-            self._token = None
+        token = self._tokens.pop()
+        if token is not None:
+            _current.reset(token)
 
     async def __aenter__(self) -> Optional[Target]:
         return self.__enter__()

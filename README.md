@@ -98,12 +98,13 @@ surreal_basics.mode = "http"
 ### Several namespaces or users
 
 ```python
-from surreal_basics import Target, use_target
+from surreal_basics import Target, repo_query, use_target
 
 # One call
 await repo_query("SELECT * FROM item", using=Target(namespace="tenant_a"))
 
 # A block: concurrent requests each keep their own target
+tenant = "tenant_b"  # e.g. resolved from the incoming request
 async with use_target(namespace=tenant, database="app"):
     await repo_query("SELECT * FROM item")
 ```

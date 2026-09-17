@@ -39,10 +39,12 @@ _AUTH_REJECTION_TYPES: tuple[type[BaseException], ...] = (
 class _Slot:
     """One persistent network connection, bound to a single target.
 
-    ``users`` counts open checkouts, so eviction never closes a connection in
-    the middle of someone's query. ``loop`` is the event loop that owns an async
-    connection: the SDK binds futures to it, so the connection is unusable from
-    any other loop (e.g. after one ``asyncio.run()`` per operation).
+    ``users`` counts open checkouts, so a connection is never closed in the
+    middle of someone's query: eviction skips it, and a slot taken out of
+    rotation while held is only ``retired`` and closed on its last release.
+    ``loop`` is the event loop that owns an async connection: the SDK binds
+    futures to it, so the connection is unusable from any other loop (e.g.
+    after one ``asyncio.run()`` per operation) and must be closed on it.
     """
 
     conn: Any
@@ -50,6 +52,7 @@ class _Slot:
     token_exp: Optional[float] = None
     loop: Optional[asyncio.AbstractEventLoop] = None
     users: int = 0
+    retired: bool = False
 
 
 @dataclass(eq=False)
@@ -82,6 +85,11 @@ class ConnectionManager:
     idle persistent connections are kept; the least recently used idle one is
     closed beyond that. Connections that are checked out are never closed, so
     the cap is soft under load.
+
+    A connection that has to be replaced while others hold it (a rejected or
+    unrefreshable token) is taken out of rotation at once and closed when its
+    last holder releases it. ``reset()`` is the exception: it closes
+    everything immediately.
     """
 
     max_connections: int = 32
@@ -146,8 +154,7 @@ class ConnectionManager:
         cls._async_slots.clear()
         cls._async_engines.clear()
         for slot in slots:
-            if slot.loop is loop:
-                await cls._close_quietly_async(slot.conn)
+            await cls._close_slot_async(slot, loop)
         for engine in engines:
             await cls._close_quietly_async(engine.conn)
 
@@ -194,6 +201,33 @@ class ConnectionManager:
             del cls._async_slots[key]
 
     @classmethod
+    async def _close_slot_async(
+        cls, slot: _Slot, current: asyncio.AbstractEventLoop
+    ) -> None:
+        """Close an async connection on the event loop that owns it."""
+        owner = slot.loop
+        if owner is None or owner is current:
+            await cls._close_quietly_async(slot.conn)
+        elif not owner.is_closed():
+            # Owned by a loop running in another thread: close it there.
+            asyncio.run_coroutine_threadsafe(cls._close_quietly_async(slot.conn), owner)
+        # A closed owner can't run the close; the socket died with it.
+
+    @classmethod
+    async def _retire_async(cls, key: tuple, slot: _Slot) -> None:
+        """Take a slot out of rotation, closing it once nobody holds it."""
+        cls._drop_async(key, slot)
+        slot.retired = True
+        if not slot.users:
+            await cls._close_slot_async(slot, asyncio.get_running_loop())
+
+    @classmethod
+    async def _release_async(cls, slot: _Slot) -> None:
+        slot.users -= 1
+        if slot.retired and not slot.users:
+            await cls._close_slot_async(slot, asyncio.get_running_loop())
+
+    @classmethod
     async def _evict_async(cls, loop: asyncio.AbstractEventLoop) -> None:
         """Close least recently used idle connections beyond the cap."""
         for key, slot in list(cls._async_slots.items()):
@@ -209,8 +243,7 @@ class ConnectionManager:
                 continue
             del cls._async_slots[key]
             excess -= 1
-            if slot.loop is loop:
-                await cls._close_quietly_async(slot.conn)
+            await cls._close_slot_async(slot, loop)
 
     @classmethod
     async def _checkout_async(cls, target: ResolvedTarget) -> tuple[tuple, _Slot]:
@@ -234,9 +267,9 @@ class ConnectionManager:
                     await slot.conn.signin(target.credentials)
                 )
             except Exception:
-                # Refresh failed — close the stale client before rebuilding.
-                cls._drop_async(key, slot)
-                await cls._close_quietly_async(slot.conn)
+                # Refresh failed — retire the stale client and rebuild. Other
+                # holders finish on it; it is closed on the last release.
+                await cls._retire_async(key, slot)
                 slot = None
 
         created = False
@@ -317,7 +350,7 @@ class ConnectionManager:
     @classmethod
     @asynccontextmanager
     async def get_async_connection(
-        cls, using: Optional[Target] = None
+        cls, *, using: Optional[Target] = None
     ) -> AsyncGenerator[AsyncSurreal, None]:
         """
         Get an async connection to SurrealDB.
@@ -379,13 +412,12 @@ class ConnectionManager:
             # errors (and raw SDK errors from direct callers) re-raise untouched.
             if not is_auth_rejected_error(e):
                 raise
-            cls._drop_async(key, slot)
-            await cls._close_quietly_async(slot.conn)
+            await cls._retire_async(key, slot)
             raise SurrealDBTransientError(
                 f"Auth token rejected; reconnecting: {e}"
             ) from e
         finally:
-            slot.users -= 1
+            await cls._release_async(slot)
 
     # ------------------------------------------------------------- sync path
 
@@ -405,6 +437,25 @@ class ConnectionManager:
         with cls._sync_lock:
             if cls._sync_slots.get(key) is slot:
                 del cls._sync_slots[key]
+
+    @classmethod
+    def _retire_sync(cls, key: tuple, slot: _Slot) -> None:
+        """Take a slot out of rotation, closing it once nobody holds it."""
+        with cls._sync_lock:
+            if cls._sync_slots.get(key) is slot:
+                del cls._sync_slots[key]
+            slot.retired = True
+            close_now = not slot.users
+        if close_now:
+            cls._close_quietly_sync(slot.conn)
+
+    @classmethod
+    def _release_sync(cls, slot: _Slot) -> None:
+        with cls._sync_lock:
+            slot.users -= 1
+            close_now = slot.retired and not slot.users
+        if close_now:
+            cls._close_quietly_sync(slot.conn)
 
     @classmethod
     def _evict_sync(cls) -> None:
@@ -435,9 +486,10 @@ class ConnectionManager:
                 try:
                     slot.token_exp = token_expiry(slot.conn.signin(target.credentials))
                 except Exception:
-                    # Refresh failed — close the stale client before rebuilding.
-                    del cls._sync_slots[key]
-                    cls._close_quietly_sync(slot.conn)
+                    # Refresh failed — retire the stale client and rebuild.
+                    # Other holders finish on it; it is closed on the last
+                    # release.
+                    cls._retire_sync(key, slot)
                     slot = None
 
             created = False
@@ -484,7 +536,7 @@ class ConnectionManager:
     @classmethod
     @contextmanager
     def get_sync_connection(
-        cls, using: Optional[Target] = None
+        cls, *, using: Optional[Target] = None
     ) -> Generator[Surreal, None, None]:
         """
         Get a sync connection to SurrealDB.
@@ -547,14 +599,12 @@ class ConnectionManager:
             # errors (and raw SDK errors from direct callers) re-raise untouched.
             if not is_auth_rejected_error(e):
                 raise
-            cls._drop_sync(key, slot)
-            cls._close_quietly_sync(slot.conn)
+            cls._retire_sync(key, slot)
             raise SurrealDBTransientError(
                 f"Auth token rejected; reconnecting: {e}"
             ) from e
         finally:
-            with cls._sync_lock:
-                slot.users -= 1
+            cls._release_sync(slot)
 
 
 # Convenience aliases

@@ -25,7 +25,7 @@ Usage:
     # Another namespace, database or credential, per call or per block
     from surreal_basics import Target, use_target
     await repo_query("SELECT * FROM item", using=Target(namespace="t2"))
-    async with use_target(namespace=tenant, database="app"):
+    async with use_target(namespace="tenant_b", database="app"):
         await repo_query("SELECT * FROM item")
 """
 

@@ -41,7 +41,7 @@ def repo_query_sync(
         SurrealDBQueryError: For non-retryable query errors, including a
             failure in any statement of a multi-statement query
     """
-    with get_sync_connection(using) as conn:
+    with get_sync_connection(using=using) as conn:
         with translate_errors():
             # query_raw + first_statement_result instead of conn.query(): the
             # SDK's query() only checks the first statement's status, so a
@@ -82,7 +82,7 @@ def repo_create_sync(
         data["created"] = datetime.now(timezone.utc)
         data["updated"] = datetime.now(timezone.utc)
 
-    with get_sync_connection(using) as conn:
+    with get_sync_connection(using=using) as conn:
         with translate_errors():
             result = conn.insert(table, data)
         return parse_record_ids(result)
@@ -170,7 +170,7 @@ def repo_update_sync(
     if add_timestamp:
         data["updated"] = datetime.now(timezone.utc)
 
-    with get_sync_connection(using) as conn:
+    with get_sync_connection(using=using) as conn:
         with translate_errors():
             result = conn.merge(rid, data)
     parsed = parse_record_ids(result)
@@ -192,7 +192,7 @@ def repo_delete_sync(
     Returns:
         The deleted record or None
     """
-    with get_sync_connection(using) as conn:
+    with get_sync_connection(using=using) as conn:
         with translate_errors():
             return conn.delete(record_id)
 
@@ -218,7 +218,7 @@ def repo_insert_sync(
     Returns:
         List of created records
     """
-    with get_sync_connection(using) as conn:
+    with get_sync_connection(using=using) as conn:
         try:
             with translate_errors():
                 result = conn.insert(table, data)
@@ -264,7 +264,7 @@ def repo_relate_sync(
         "in": ensure_record_id(source),
         "out": ensure_record_id(target),
     }
-    with get_sync_connection(using) as conn:
+    with get_sync_connection(using=using) as conn:
         with translate_errors():
             result = conn.insert_relation(relationship, payload)
     parsed = parse_record_ids(result)
@@ -293,7 +293,7 @@ def repo_select_sync(
     if isinstance(table_or_id, str) and ":" in table_or_id:
         table_or_id = ensure_record_id(table_or_id)
 
-    with get_sync_connection(using) as conn:
+    with get_sync_connection(using=using) as conn:
         with translate_errors():
             result = conn.select(table_or_id)
         parsed = parse_record_ids(result)

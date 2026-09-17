@@ -27,6 +27,7 @@ class AsyncMigrationRunner:
     def __init__(
         self,
         migrations_dir: str | Path = "migrations",
+        *,
         using: Optional[Target] = None,
     ):
         """

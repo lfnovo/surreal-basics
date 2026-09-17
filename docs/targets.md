@@ -103,15 +103,27 @@ password. Secrets are left out of `repr()`.
 
 ## Connections
 
-Each distinct target gets its own persistent connection, keyed by URL,
-namespace, database and credential. The key holds a hash of the credential,
-not the credential itself. The default target keeps using a single connection,
-as before.
+In the persistent network modes (WebSocket, and HTTP with `persistent=True`),
+each distinct target gets its own connection, keyed by URL, namespace,
+database and credential. The key holds a hash of the credential, not the
+credential itself. The default target keeps using a single connection, as
+before. Async connections also belong to the event loop that opened them, so
+the same target on two loops means two connections.
+
+HTTP with `persistent=False` opens a new connection for every operation, target
+or not. Memory and embedded modes are covered [below](#memory-and-embedded-modes).
 
 Idle connections are capped at `ConnectionManager.max_connections` (32 by
-default). Past that, the least recently used idle connection is closed. A
-connection in use by a query is never closed, so under load the limit can be
-exceeded briefly.
+default). Past that, the least recently used idle connection is closed, on the
+event loop that owns it. A connection that a query is using is never closed
+under it:
+
+- eviction skips it, so under load the limit can be exceeded briefly;
+- when it has to be replaced (a rejected or unrefreshable token), it leaves the
+  pool at once, so new operations get a fresh connection, and is closed when
+  its last user finishes.
+
+`reset_connections()` is the exception: it closes everything immediately.
 
 ```python
 from surreal_basics import ConnectionManager
@@ -129,6 +141,10 @@ These modes run the database inside the process, and a second `mem://` handle
 would be a separate, empty database. So all targets share one engine, and the
 engine switches namespace and database when a different target asks for it.
 
+"One engine" means one per API: the sync functions and the async functions
+each have their own, as they did before targets. In `memory` mode they are two
+separate databases.
+
 The engine holds one namespace and database at a time. Asking for a different
 target while a connection to another is still in use raises
 `SurrealDBConnectionError`. Sequential switching, and concurrent use of the
@@ -137,13 +153,15 @@ same target, both work. Credentials are ignored in these modes, as before.
 ## Migrating several namespaces
 
 ```python
+import asyncio
+
 from surreal_basics import Target
 from surreal_basics.migrate import MigrationRunner, AsyncMigrationRunner
 
 for tenant in tenants:
     MigrationRunner("migrations", using=Target(namespace=tenant)).run_up()
 
-# or concurrently
+# or concurrently (server modes only; see the memory/embedded note above)
 await asyncio.gather(*(
     AsyncMigrationRunner("migrations", using=Target(namespace=t)).run_up()
     for t in tenants

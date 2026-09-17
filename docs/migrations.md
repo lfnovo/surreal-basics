@@ -208,19 +208,29 @@ one:
 
 ```python
 from surreal_basics import Target
+from surreal_basics.migrate import MigrationRunner
 
 for tenant in tenants:
     MigrationRunner("./migrations", using=Target(namespace=tenant)).run_up()
 ```
 
-The async runner can migrate them concurrently, each over its own connection:
+With a server (WebSocket or HTTP), the async runner can migrate them
+concurrently, each over its own connection:
 
 ```python
+import asyncio
+
+from surreal_basics import Target
+from surreal_basics.migrate import AsyncMigrationRunner
+
 await asyncio.gather(*(
     AsyncMigrationRunner("./migrations", using=Target(namespace=t)).run_up()
     for t in tenants
 ))
 ```
+
+In memory and embedded modes every target shares one in-process engine, which
+serves one namespace at a time, so migrate those sequentially.
 
 Changing the configuration between runs also works:
 `init(namespace=tenant)` followed by `MigrationRunner(...).run_up()` migrates

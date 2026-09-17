@@ -161,7 +161,9 @@ class TestCrossEventLoopRecovery:
         """Connections owned by a closed loop don't pile up."""
         for i in range(3):
             asyncio.run(repo_query("RETURN $n", {"n": i}))
-        assert len(ConnectionManager._async_slots) == 1
+        key = resolve_target().key
+        mine = [k for k in ConnectionManager._async_slots if k[1:] == key]
+        assert len(mine) == 1
 
     def test_ws_async_same_loop_keeps_singleton(self, surreal_config_ws):
         """Within one loop the singleton is still reused, not rebuilt."""

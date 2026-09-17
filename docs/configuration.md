@@ -119,7 +119,7 @@ current = surreal_basics.get_mode()
 surreal_basics.init(mode="ws")
 ```
 
-- **Persistent connection**: A single connection is maintained (singleton)
+- **Persistent connection**: One connection per [target](targets.md); a single one unless you use targets
 - **Performance**: 3-6x faster than HTTP
 - **Ideal for**: Long-running applications, backends, workers
 
@@ -133,7 +133,7 @@ surreal_basics.init(mode="http", persistent=True)
 surreal_basics.init(mode="http", persistent=False)
 ```
 
-- **persistent=True**: Keeps connection open for reuse
+- **persistent=True**: Keeps a connection open for reuse, one per target
 - **persistent=False**: New connection per operation (useful for lambdas)
 - **Ideal for**: Serverless, environments without WebSocket support
 
@@ -187,15 +187,31 @@ reset_connections()
 await reset_connections_async()
 ```
 
+### Connection limit
+
+With [targets](targets.md), each target has its own persistent connection.
+Idle ones beyond `ConnectionManager.max_connections` (default 32) are closed,
+least recently used first:
+
+```python
+from surreal_basics import ConnectionManager
+
+ConnectionManager.max_connections = 128
+```
+
 ### Direct Access (advanced)
 
 For special cases, access the connection manager:
 
 ```python
-from surreal_basics import get_async_connection, get_sync_connection
+from surreal_basics import Target, get_async_connection, get_sync_connection
 
 # Use as context manager
 async with get_async_connection() as conn:
+    result = await conn.query("SELECT * FROM user")
+
+# Against another target
+async with get_async_connection(Target(namespace="tenant_a")) as conn:
     result = await conn.query("SELECT * FROM user")
 
 with get_sync_connection() as conn:

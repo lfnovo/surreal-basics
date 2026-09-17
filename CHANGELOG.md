@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Target` and `use_target()` for running against a namespace, database or
+  credential other than the configured one (#34). Every `repo_*` function,
+  `get_async_connection()`/`get_sync_connection()` and both migration runners
+  take a keyword-only `using=Target(...)`. `use_target()` binds a target for a
+  `with`/`async with` block through a `ContextVar`, so concurrent requests
+  each keep their own. Unset fields fall back to the bound block, then to the
+  global config. A target can carry a username/password with its own
+  `auth_scope`, bound to the target's namespace, or an access token passed to
+  `authenticate()`.
+- One persistent connection per target, keyed by URL, namespace, database and a
+  hash of the credential. Idle connections beyond
+  `ConnectionManager.max_connections` (default 32) are closed, least recently
+  used first; a connection in use is never closed. In memory and embedded mode
+  every target shares the one in-process engine, which switches namespace and
+  database on demand and raises `SurrealDBConnectionError` rather than switch
+  while another target holds it.
+
+### Changed
+
+- Calling `init(namespace=...)` or `init(database=...)` after a connection is
+  open now takes effect on the next operation. Before, the open connection kept
+  its original namespace until `reset_connections()`, so a loop migrating one
+  namespace per iteration applied everything to the first and still reported
+  success (#33).
+- The private per-mode singletons on `ConnectionManager`
+  (`_ws_async_connection`, `_http_sync_connected` and so on) are gone, replaced
+  by the per-target connection map. They were never documented.
+
 ## [0.8.1] - 2026-09-11
 
 ### Fixed

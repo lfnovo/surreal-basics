@@ -16,7 +16,8 @@ sbl-migrate status                  # show migration status
 
 - `surreal_basics/` - library code
   - `config.py` - configuration (env vars, init())
-  - `connection.py` - connection management (singleton WS, HTTP)
+  - `connection.py` - connection management (one persistent connection per target)
+  - `target.py` - Target, use_target() (contextvars), resolution against config
   - `repo.py` - async functions
   - `repo_sync.py` - sync functions
   - `retry.py` - retry with tenacity

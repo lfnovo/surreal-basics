@@ -1,10 +1,12 @@
 """Async migration runner."""
 
 from pathlib import Path
+from typing import Any, Optional
 
 from .._sdk import is_duplicate_error
 from ..exceptions import SurrealDBMigrationError, SurrealDBQueryError
 from ..repo import repo_query
+from ..target import Target
 from .discovery import discover_migrations, parse_sql_file
 from .models import MigrationFile, MigrationRecord
 
@@ -22,17 +24,31 @@ DEFINE INDEX IF NOT EXISTS idx_version ON {_TRACKING_TABLE} FIELDS version UNIQU
 class AsyncMigrationRunner:
     """Async migration runner using repo_query."""
 
-    def __init__(self, migrations_dir: str | Path = "migrations"):
+    def __init__(
+        self,
+        migrations_dir: str | Path = "migrations",
+        using: Optional[Target] = None,
+    ):
+        """
+        Args:
+            migrations_dir: Directory holding the ``.surrealql`` files.
+            using: Target to migrate. Defaults to the one bound with
+                ``use_target()``, then to the global config.
+        """
         self.migrations_dir = Path(migrations_dir)
+        self.using = using
+
+    async def _query(self, sql: str, vars: Optional[dict[str, Any]] = None) -> Any:
+        return await repo_query(sql, vars, using=self.using)
 
     async def ensure_tracking_table(self) -> None:
         """Create the tracking table if it doesn't exist."""
-        await repo_query(_CREATE_TRACKING_TABLE)
+        await self._query(_CREATE_TRACKING_TABLE)
 
     async def get_applied_versions(self) -> list[MigrationRecord]:
         """Get all applied migrations ordered by version."""
         await self.ensure_tracking_table()
-        results = await repo_query(
+        results = await self._query(
             f"SELECT * FROM {_TRACKING_TABLE} ORDER BY version ASC"
         )
         return [
@@ -85,7 +101,7 @@ class AsyncMigrationRunner:
             if dry_run:
                 dry_sql = f"BEGIN TRANSACTION;\n{sql}\nCANCEL TRANSACTION;"
                 try:
-                    await repo_query(dry_sql)
+                    await self._query(dry_sql)
                 except SurrealDBQueryError as e:
                     if "cancelled transaction" in str(e).lower():
                         pass  # Expected: CANCEL TRANSACTION worked
@@ -101,7 +117,7 @@ class AsyncMigrationRunner:
                     ) from e
             else:
                 try:
-                    await repo_query(sql)
+                    await self._query(sql)
                 except Exception as e:
                     raise SurrealDBMigrationError(
                         f"Migration {migration.version:03d}_{migration.name} "
@@ -157,7 +173,7 @@ class AsyncMigrationRunner:
         means the version is already recorded and is safe to swallow.
         """
         try:
-            await repo_query(
+            await self._query(
                 f"UPSERT {_TRACKING_TABLE}:{migration.version} "
                 f"SET version = $version, name = $name",
                 {"version": migration.version, "name": migration.name},
@@ -200,13 +216,13 @@ class AsyncMigrationRunner:
 
             sql = parse_sql_file(migration.down_path)
             try:
-                await repo_query(sql)
+                await self._query(sql)
             except Exception as e:
                 raise SurrealDBMigrationError(
                     f"Rollback {record.version:03d}_{record.name} failed: {e}"
                 ) from e
 
-            await repo_query(
+            await self._query(
                 f"DELETE {_TRACKING_TABLE} WHERE version = $version",
                 {"version": record.version},
             )

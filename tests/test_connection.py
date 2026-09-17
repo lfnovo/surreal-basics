@@ -11,42 +11,40 @@ from surreal_basics import (
     repo_query_sync,
     reset_connections,
 )
-from surreal_basics.connection import ConnectionManager
+from surreal_basics.connection import ConnectionManager, _Engine, _Slot
 from surreal_basics.exceptions import SurrealDBTransientError
+from surreal_basics.target import resolve_target
+
+
+class _Closable:
+    """Stand-in connection that records close()."""
+
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
 
 
 class TestConnectionManager:
     """Tests for ConnectionManager."""
 
     def test_reset_clears_connections(self, reset_config):
-        """Test that reset clears all connection references."""
-        ConnectionManager._ws_sync_connection = "mock"
-        ConnectionManager._ws_async_connection = "mock"
-        ConnectionManager._http_sync_connection = "mock"
-        ConnectionManager._http_async_connection = "mock"
-        ConnectionManager._embedded_sync_connection = "mock"
-        ConnectionManager._embedded_async_connection = "mock"
-        ConnectionManager._ws_sync_connected = True
-        ConnectionManager._ws_async_connected = True
-        ConnectionManager._http_sync_connected = True
-        ConnectionManager._http_async_connected = True
-        ConnectionManager._embedded_sync_connected = True
-        ConnectionManager._embedded_async_connected = True
+        """reset() closes sync connections and forgets every connection."""
+        sync_conn, engine_conn = _Closable(), _Closable()
+        target = resolve_target()
+        ConnectionManager._sync_slots[("sync",)] = _Slot(sync_conn, target)
+        ConnectionManager._async_slots[("async",)] = _Slot(object(), target)
+        ConnectionManager._sync_engines["mem://"] = _Engine(engine_conn)
+        ConnectionManager._async_engines["mem://"] = _Engine(object())
 
         ConnectionManager.reset()
 
-        assert ConnectionManager._ws_sync_connection is None
-        assert ConnectionManager._ws_async_connection is None
-        assert ConnectionManager._http_sync_connection is None
-        assert ConnectionManager._http_async_connection is None
-        assert ConnectionManager._embedded_sync_connection is None
-        assert ConnectionManager._embedded_async_connection is None
-        assert ConnectionManager._ws_sync_connected is False
-        assert ConnectionManager._ws_async_connected is False
-        assert ConnectionManager._http_sync_connected is False
-        assert ConnectionManager._http_async_connected is False
-        assert ConnectionManager._embedded_sync_connected is False
-        assert ConnectionManager._embedded_async_connected is False
+        assert not ConnectionManager._sync_slots
+        assert not ConnectionManager._async_slots
+        assert not ConnectionManager._sync_engines
+        assert not ConnectionManager._async_engines
+        assert sync_conn.closed and engine_conn.closed
 
 
 class TestGetCredentials:
@@ -94,34 +92,34 @@ class TestConnectionIntegration:
 
     def test_ws_sync_connection_persistent(self, surreal_config_ws):
         """Test that WS sync connections are persistent (singleton)."""
-        with ConnectionManager.get_sync_connection():
+        with ConnectionManager.get_sync_connection() as first:
             pass
-        with ConnectionManager.get_sync_connection():
+        with ConnectionManager.get_sync_connection() as second:
             pass
-        # Should be same connection object
-        assert ConnectionManager._ws_sync_connection is not None
+        assert first is second
+        assert ConnectionManager._sync_slot_for().conn is first
 
     def test_http_sync_connection_persistent(self, surreal_config_http):
         """Test that HTTP sync connections are persistent when configured."""
         init(persistent=True)
-        with ConnectionManager.get_sync_connection():
+        with ConnectionManager.get_sync_connection() as first:
             pass
-        with ConnectionManager.get_sync_connection():
+        with ConnectionManager.get_sync_connection() as second:
             pass
-        # Should be same connection object
-        assert ConnectionManager._http_sync_connection is not None
+        assert first is second
+        assert ConnectionManager._sync_slot_for().conn is first
 
     @pytest.mark.asyncio
     async def test_ws_async_connection_persistent(
         self, surreal_config_ws, async_cleanup
     ):
         """Test that WS async connections are persistent (singleton)."""
-        async with ConnectionManager.get_async_connection():
+        async with ConnectionManager.get_async_connection() as first:
             pass
-        async with ConnectionManager.get_async_connection():
+        async with ConnectionManager.get_async_connection() as second:
             pass
-        # Should be same connection object
-        assert ConnectionManager._ws_async_connection is not None
+        assert first is second
+        assert ConnectionManager._async_slot_for().conn is first
 
     @pytest.mark.asyncio
     async def test_http_async_connection_persistent(
@@ -129,12 +127,12 @@ class TestConnectionIntegration:
     ):
         """Test that HTTP async connections are persistent when configured."""
         init(persistent=True)
-        async with ConnectionManager.get_async_connection():
+        async with ConnectionManager.get_async_connection() as first:
             pass
-        async with ConnectionManager.get_async_connection():
+        async with ConnectionManager.get_async_connection() as second:
             pass
-        # Should be same connection object
-        assert ConnectionManager._http_async_connection is not None
+        assert first is second
+        assert ConnectionManager._async_slot_for().conn is first
 
 
 @pytest.mark.integration
@@ -159,14 +157,20 @@ class TestCrossEventLoopRecovery:
             result = asyncio.run(repo_query("RETURN $n", {"n": i}))
             assert result == i
 
+    def test_ws_async_finished_loops_are_forgotten(self, surreal_config_ws):
+        """Connections owned by a closed loop don't pile up."""
+        for i in range(3):
+            asyncio.run(repo_query("RETURN $n", {"n": i}))
+        assert len(ConnectionManager._async_slots) == 1
+
     def test_ws_async_same_loop_keeps_singleton(self, surreal_config_ws):
         """Within one loop the singleton is still reused, not rebuilt."""
 
         async def two_queries():
             await repo_query("RETURN 1")
-            first = ConnectionManager._ws_async_connection
+            first = ConnectionManager._async_slot_for().conn
             await repo_query("RETURN 2")
-            return first is ConnectionManager._ws_async_connection
+            return first is ConnectionManager._async_slot_for().conn
 
         assert asyncio.run(two_queries()) is True
 
@@ -242,33 +246,33 @@ class TestMemoryConnection:
         """Test sync connection in memory mode."""
         with ConnectionManager.get_sync_connection() as conn:
             assert conn is not None
-        assert ConnectionManager._embedded_sync_connected is True
+        assert ConnectionManager._sync_engines["mem://"].conn is conn
 
     def test_memory_sync_connection_persistent(self, surreal_config_memory):
         """Test that memory sync connections are persistent (singleton)."""
-        with ConnectionManager.get_sync_connection():
+        with ConnectionManager.get_sync_connection() as first:
             pass
-        with ConnectionManager.get_sync_connection():
+        with ConnectionManager.get_sync_connection() as second:
             pass
-        assert ConnectionManager._embedded_sync_connection is not None
+        assert first is second
 
     @pytest.mark.asyncio
     async def test_memory_async_connection(self, surreal_config_memory, async_cleanup):
         """Test async connection in memory mode."""
         async with ConnectionManager.get_async_connection() as conn:
             assert conn is not None
-        assert ConnectionManager._embedded_async_connected is True
+        assert ConnectionManager._async_engines["mem://"].conn is conn
 
     @pytest.mark.asyncio
     async def test_memory_async_connection_persistent(
         self, surreal_config_memory, async_cleanup
     ):
         """Test that memory async connections are persistent (singleton)."""
-        async with ConnectionManager.get_async_connection():
+        async with ConnectionManager.get_async_connection() as first:
             pass
-        async with ConnectionManager.get_async_connection():
+        async with ConnectionManager.get_async_connection() as second:
             pass
-        assert ConnectionManager._embedded_async_connection is not None
+        assert first is second
 
     def test_memory_sync_query(self, surreal_config_memory):
         """Test running a query via sync memory connection."""
@@ -331,44 +335,50 @@ class TestWSDroppedConnectionRecovery:
         # variant that surfaces in real life (no close frame received or sent).
         return ConnectionClosedError(None, None)
 
+    @staticmethod
+    def _inject_async(sentinel) -> tuple:
+        target = resolve_target()
+        loop = asyncio.get_running_loop()
+        key = ConnectionManager._async_key(target, loop)
+        ConnectionManager._async_slots[key] = _Slot(sentinel, target, loop=loop)
+        return key
+
+    @staticmethod
+    def _inject_sync(sentinel) -> tuple:
+        target = resolve_target()
+        ConnectionManager._sync_slots[target.key] = _Slot(sentinel, target)
+        return target.key
+
     @pytest.mark.asyncio
     async def test_async_ws_drop_resets_singleton(self, reset_config):
         init(host="localhost", port=8000, mode="ws", persistent=True)
         try:
             sentinel = object()
-            ConnectionManager._ws_async_connection = sentinel  # type: ignore[assignment]
-            ConnectionManager._ws_async_connected = True
-            ConnectionManager._ws_async_loop = asyncio.get_running_loop()
+            key = self._inject_async(sentinel)
 
             with pytest.raises(SurrealDBTransientError):
                 async with ConnectionManager.get_async_connection() as conn:
                     assert conn is sentinel
                     raise self._fake_closed_error()
 
-            assert ConnectionManager._ws_async_connection is None
-            assert ConnectionManager._ws_async_connected is False
+            assert key not in ConnectionManager._async_slots
         finally:
-            ConnectionManager._ws_async_connection = None
-            ConnectionManager._ws_async_connected = False
-            ConnectionManager._ws_async_loop = None
+            ConnectionManager._async_slots.clear()
 
     def test_sync_ws_drop_resets_singleton(self, reset_config):
         init(host="localhost", port=8000, mode="ws", persistent=True)
         try:
             sentinel = object()
-            ConnectionManager._ws_sync_connection = sentinel  # type: ignore[assignment]
-            ConnectionManager._ws_sync_connected = True
+            key = self._inject_sync(sentinel)
 
             with pytest.raises(SurrealDBTransientError):
                 with ConnectionManager.get_sync_connection() as conn:
                     assert conn is sentinel
                     raise self._fake_closed_error()
 
-            assert ConnectionManager._ws_sync_connection is None
-            assert ConnectionManager._ws_sync_connected is False
+            assert key not in ConnectionManager._sync_slots
         finally:
-            ConnectionManager._ws_sync_connection = None
-            ConnectionManager._ws_sync_connected = False
+            ConnectionManager._sync_slots.clear()
 
     @pytest.mark.asyncio
     async def test_async_non_ws_exception_propagates(self, reset_config):
@@ -376,19 +386,15 @@ class TestWSDroppedConnectionRecovery:
         init(host="localhost", port=8000, mode="ws", persistent=True)
         try:
             sentinel = object()
-            ConnectionManager._ws_async_connection = sentinel  # type: ignore[assignment]
-            ConnectionManager._ws_async_connected = True
-            ConnectionManager._ws_async_loop = asyncio.get_running_loop()
+            key = self._inject_async(sentinel)
 
             with pytest.raises(ValueError):
                 async with ConnectionManager.get_async_connection() as conn:
                     assert conn is sentinel
                     raise ValueError("not a connection drop")
 
-            # Singleton stays intact — only drops are special-cased.
-            assert ConnectionManager._ws_async_connection is sentinel
-            assert ConnectionManager._ws_async_connected is True
+            # Slot stays intact — only drops are special-cased.
+            assert ConnectionManager._async_slots[key].conn is sentinel
+            assert ConnectionManager._async_slots[key].users == 0
         finally:
-            ConnectionManager._ws_async_connection = None
-            ConnectionManager._ws_async_connected = False
-            ConnectionManager._ws_async_loop = None
+            ConnectionManager._async_slots.clear()

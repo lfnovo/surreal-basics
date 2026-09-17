@@ -4,6 +4,10 @@
 
 All functions have async and sync versions (suffix `_sync`).
 
+Every function also takes a keyword-only `using=` argument: a
+[`Target`](#targets) to run against instead of the configured namespace,
+database and user.
+
 ---
 
 ### repo_query / repo_query_sync
@@ -292,12 +296,62 @@ rid = ensure_record_id(rid)  # Returns same RecordID
 
 ---
 
+## Targets
+
+See [Targets](targets.md) for the full guide.
+
+### Target
+
+```python
+Target(
+    namespace: str | None = None,
+    database: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    auth_scope: "root" | "namespace" | "database" | None = None,
+    token: str | None = None,
+)
+```
+
+Frozen dataclass. Fields left as `None` fall back to the bound `use_target()`
+block, then to the global config. Raises `ValueError` for a token combined with
+a username, a username without a password, or an unknown `auth_scope`.
+
+```python
+await repo_query("SELECT * FROM item", using=Target(namespace="tenant_a"))
+```
+
+### use_target
+
+```python
+use_target(target: Target | None = None, **fields)
+```
+
+Binds a target for a `with` / `async with` block. Takes a `Target` or its
+fields as keywords, not both. Nested blocks layer over outer ones.
+`use_target(None)` is a no-op.
+
+```python
+async with use_target(namespace="tenant_a", database="app"):
+    await repo_query("SELECT * FROM item")
+```
+
+### current_target
+
+```python
+current_target() -> Target | None
+```
+
+The target bound by the innermost active `use_target()` block.
+
+---
+
 ## Exceptions
 
 | Exception | Description | Retry |
 |-----------|-------------|-------|
 | `SurrealDBError` | Base for all exceptions | - |
-| `SurrealDBConnectionError` | Failed to connect to SurrealDB | No |
+| `SurrealDBConnectionError` | Failed to connect to SurrealDB, or an in-process engine asked for a second target while busy | No |
 | `SurrealDBMigrationError` | Migration failed to apply or rollback | No |
 | `SurrealDBQueryError` | Query error (syntax, etc) | No |
 | `SurrealDBTransientError` | Transient error (lock conflict) | Yes (3x) |

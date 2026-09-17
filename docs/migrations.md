@@ -201,6 +201,32 @@ await runner.run_down(steps=1)
 status = await runner.status()
 ```
 
+### Several namespaces
+
+Pass a [target](targets.md) to migrate a namespace other than the configured
+one:
+
+```python
+from surreal_basics import Target
+
+for tenant in tenants:
+    MigrationRunner("./migrations", using=Target(namespace=tenant)).run_up()
+```
+
+The async runner can migrate them concurrently, each over its own connection:
+
+```python
+await asyncio.gather(*(
+    AsyncMigrationRunner("./migrations", using=Target(namespace=t)).run_up()
+    for t in tenants
+))
+```
+
+Changing the configuration between runs also works:
+`init(namespace=tenant)` followed by `MigrationRunner(...).run_up()` migrates
+`tenant`. Before 0.9.0 the open connection kept its first namespace, so every
+iteration migrated the first tenant and still reported success.
+
 ### Discovery
 
 ```python

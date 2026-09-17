@@ -9,12 +9,16 @@ from ._sdk import first_statement_result, is_duplicate_error, translate_errors
 from .connection import get_async_connection
 from .exceptions import SurrealDBQueryError
 from .retry import surreal_retry_async
+from .target import Target
 from .utils import ensure_record_id, parse_record_ids, validate_identifier
 
 
 @surreal_retry_async
 async def repo_query(
-    query_str: str, vars: Optional[Dict[str, Any]] = None
+    query_str: str,
+    vars: Optional[Dict[str, Any]] = None,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]:
     """
     Execute a SurrealQL query and return the results.
@@ -24,6 +28,8 @@ async def repo_query(
     Args:
         query_str: The SurrealQL query to execute
         vars: Optional variables for parameterized queries
+        using: Target to run against. Defaults to the one bound with
+            ``use_target()``, then to the global config.
 
     Returns:
         List of result dictionaries. For a multi-statement query this is the
@@ -35,7 +41,7 @@ async def repo_query(
         SurrealDBQueryError: For non-retryable query errors, including a
             failure in any statement of a multi-statement query
     """
-    async with get_async_connection() as conn:
+    async with get_async_connection(using) as conn:
         with translate_errors():
             # query_raw + first_statement_result instead of conn.query(): the
             # SDK's query() only checks the first statement's status, so a
@@ -48,7 +54,11 @@ async def repo_query(
 
 @surreal_retry_async
 async def repo_create(
-    table: str, data: Dict[str, Any], add_timestamps: bool = False
+    table: str,
+    data: Dict[str, Any],
+    add_timestamps: bool = False,
+    *,
+    using: Optional[Target] = None,
 ) -> Dict[str, Any]:
     """
     Create a new record in the specified table.
@@ -60,6 +70,8 @@ async def repo_create(
         table: The table name
         data: The record data
         add_timestamps: Whether to add 'created' and 'updated' timestamps
+        using: Target to run against. Defaults to the one bound with
+            ``use_target()``, then to the global config.
 
     Returns:
         The created record
@@ -70,7 +82,7 @@ async def repo_create(
         data["created"] = datetime.now(timezone.utc)
         data["updated"] = datetime.now(timezone.utc)
 
-    async with get_async_connection() as conn:
+    async with get_async_connection(using) as conn:
         with translate_errors():
             result = await conn.insert(table, data)
         return parse_record_ids(result)
@@ -82,6 +94,8 @@ async def repo_upsert(
     record_id: Optional[str],
     data: Dict[str, Any],
     add_timestamp: bool = False,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]:
     """
     Create or update a record in the specified table (merge).
@@ -91,6 +105,8 @@ async def repo_upsert(
         record_id: Optional record ID (e.g., "user:123"). If None, uses table name.
         data: The data to merge
         add_timestamp: Whether to add/update the 'updated' timestamp
+        using: Target to run against. Defaults to the one bound with
+            ``use_target()``, then to the global config.
 
     Returns:
         List containing the upserted record
@@ -110,7 +126,9 @@ async def repo_upsert(
         validate_identifier(table, "table")
         what = Table(table)
 
-    return await repo_query("UPSERT $what MERGE $data;", {"what": what, "data": data})
+    return await repo_query(
+        "UPSERT $what MERGE $data;", {"what": what, "data": data}, using=using
+    )
 
 
 @surreal_retry_async
@@ -119,6 +137,8 @@ async def repo_update(
     record_id: Union[str, RecordID],
     data: Dict[str, Any],
     add_timestamp: bool = False,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]:
     """
     Update an existing record by table and id.
@@ -128,6 +148,8 @@ async def repo_update(
         record_id: The record ID (can be just the ID part or full "table:id")
         data: The data to merge
         add_timestamp: Whether to add/update the 'updated' timestamp
+        using: Target to run against. Defaults to the one bound with
+            ``use_target()``, then to the global config.
 
     Returns:
         List containing the updated record
@@ -148,7 +170,7 @@ async def repo_update(
     if add_timestamp:
         data["updated"] = datetime.now(timezone.utc)
 
-    async with get_async_connection() as conn:
+    async with get_async_connection(using) as conn:
         with translate_errors():
             result = await conn.merge(rid, data)
     parsed = parse_record_ids(result)
@@ -156,24 +178,32 @@ async def repo_update(
 
 
 @surreal_retry_async
-async def repo_delete(record_id: Union[str, RecordID]) -> Any:
+async def repo_delete(
+    record_id: Union[str, RecordID], *, using: Optional[Target] = None
+) -> Any:
     """
     Delete a record by record id.
 
     Args:
         record_id: The full record ID (e.g., "user:123")
+        using: Target to run against. Defaults to the one bound with
+            ``use_target()``, then to the global config.
 
     Returns:
         The deleted record or None
     """
-    async with get_async_connection() as conn:
+    async with get_async_connection(using) as conn:
         with translate_errors():
             return await conn.delete(record_id)
 
 
 @surreal_retry_async
 async def repo_insert(
-    table: str, data: List[Dict[str, Any]], ignore_duplicates: bool = False
+    table: str,
+    data: List[Dict[str, Any]],
+    ignore_duplicates: bool = False,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]:
     """
     Bulk insert records into a table.
@@ -182,11 +212,13 @@ async def repo_insert(
         table: The table name
         data: List of records to insert
         ignore_duplicates: If True, silently ignore duplicate key errors
+        using: Target to run against. Defaults to the one bound with
+            ``use_target()``, then to the global config.
 
     Returns:
         List of created records
     """
-    async with get_async_connection() as conn:
+    async with get_async_connection(using) as conn:
         try:
             with translate_errors():
                 result = await conn.insert(table, data)
@@ -203,6 +235,8 @@ async def repo_relate(
     relationship: str,
     target: str,
     data: Optional[Dict[str, Any]] = None,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]:
     """
     Create a relationship between two records.
@@ -212,6 +246,8 @@ async def repo_relate(
         relationship: The relationship type/table name
         target: The target record ID
         data: Optional data to attach to the relationship
+        using: Target to run against. Defaults to the one bound with
+            ``use_target()``, then to the global config.
 
     Returns:
         List containing the created relationship record
@@ -228,7 +264,7 @@ async def repo_relate(
         "in": ensure_record_id(source),
         "out": ensure_record_id(target),
     }
-    async with get_async_connection() as conn:
+    async with get_async_connection(using) as conn:
         with translate_errors():
             result = await conn.insert_relation(relationship, payload)
     parsed = parse_record_ids(result)
@@ -237,13 +273,15 @@ async def repo_relate(
 
 @surreal_retry_async
 async def repo_select(
-    table_or_id: Union[str, RecordID],
+    table_or_id: Union[str, RecordID], *, using: Optional[Target] = None
 ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
     """
     Select records from a table or a specific record by ID.
 
     Args:
         table_or_id: Table name (selects all) or record ID (selects one)
+        using: Target to run against. Defaults to the one bound with
+            ``use_target()``, then to the global config.
 
     Returns:
         Single record dict or list of records
@@ -255,7 +293,7 @@ async def repo_select(
     if isinstance(table_or_id, str) and ":" in table_or_id:
         table_or_id = ensure_record_id(table_or_id)
 
-    async with get_async_connection() as conn:
+    async with get_async_connection(using) as conn:
         with translate_errors():
             result = await conn.select(table_or_id)
         parsed = parse_record_ids(result)

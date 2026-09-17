@@ -21,6 +21,12 @@ Usage:
     # Sync operations
     from surreal_basics import repo_query_sync, repo_create_sync
     results = repo_query_sync("SELECT * FROM user")
+
+    # Another namespace, database or credential, per call or per block
+    from surreal_basics import Target, use_target
+    await repo_query("SELECT * FROM item", using=Target(namespace="t2"))
+    async with use_target(namespace=tenant, database="app"):
+        await repo_query("SELECT * FROM item")
 """
 
 # Re-export RecordID for convenience
@@ -69,6 +75,9 @@ from .repo_sync import (
     repo_update_sync,
     repo_upsert_sync,
 )
+
+# Per-call and per-context targets
+from .target import Target, current_target, use_target
 
 # Utilities
 from .utils import ensure_record_id, parse_record_ids
@@ -128,6 +137,10 @@ __all__ = [
     "repo_insert_sync",
     "repo_relate_sync",
     "repo_select_sync",
+    # Targets
+    "Target",
+    "use_target",
+    "current_target",
     # Utilities
     "parse_record_ids",
     "ensure_record_id",

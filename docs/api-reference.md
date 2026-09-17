@@ -4,6 +4,10 @@
 
 All functions have async and sync versions (suffix `_sync`).
 
+Every function also takes a keyword-only `using=` argument: a
+[`Target`](#targets) to run against instead of the configured namespace,
+database and user.
+
 ---
 
 ### repo_query / repo_query_sync
@@ -13,13 +17,16 @@ Execute a SurrealQL query.
 ```python
 async def repo_query(
     query_str: str,
-    vars: Optional[Dict[str, Any]] = None
+    vars: Optional[Dict[str, Any]] = None,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]
 ```
 
 **Parameters:**
 - `query_str`: SurrealQL query
 - `vars`: Variables for parameterized queries
+- `using`: Optional [`Target`](#target), keyword-only. Defaults to the bound `use_target()` block, then the global config
 
 **Returns:** List of results. For a multi-statement query, the result of the
 first statement. Every statement is checked regardless: a failure anywhere in
@@ -55,7 +62,9 @@ tables without `created`/`updated`.
 async def repo_create(
     table: str,
     data: Dict[str, Any],
-    add_timestamps: bool = False
+    add_timestamps: bool = False,
+    *,
+    using: Optional[Target] = None,
 ) -> Dict[str, Any]
 ```
 
@@ -63,6 +72,7 @@ async def repo_create(
 - `table`: Table name
 - `data`: Record data
 - `add_timestamps`: If True, adds `created` and `updated` fields client-side
+- `using`: Optional [`Target`](#target), keyword-only. Defaults to the bound `use_target()` block, then the global config
 
 **Returns:** Created record with ID
 
@@ -84,12 +94,15 @@ Select records from a table or a specific record by ID.
 
 ```python
 async def repo_select(
-    table_or_id: Union[str, RecordID]
+    table_or_id: Union[str, RecordID],
+    *,
+    using: Optional[Target] = None,
 ) -> Union[Dict[str, Any], List[Dict[str, Any]]]
 ```
 
 **Parameters:**
 - `table_or_id`: Table name (returns all) or record ID
+- `using`: Optional [`Target`](#target), keyword-only. Defaults to the bound `use_target()` block, then the global config
 
 **Returns:** Single record or list of records
 
@@ -113,7 +126,9 @@ async def repo_update(
     table: str,
     record_id: str,
     data: Dict[str, Any],
-    add_timestamp: bool = False
+    add_timestamp: bool = False,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]
 ```
 
@@ -122,6 +137,7 @@ async def repo_update(
 - `record_id`: Record ID (can be "table:id" or just "id")
 - `data`: Data to merge
 - `add_timestamp`: If True, updates the `updated` field client-side
+- `using`: Optional [`Target`](#target), keyword-only. Defaults to the bound `use_target()` block, then the global config
 
 **Returns:** List with updated record
 
@@ -143,7 +159,9 @@ async def repo_upsert(
     table: str,
     record_id: Optional[str],
     data: Dict[str, Any],
-    add_timestamp: bool = False
+    add_timestamp: bool = False,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]
 ```
 
@@ -152,6 +170,7 @@ async def repo_upsert(
 - `record_id`: Record ID (optional, e.g., "user:123")
 - `data`: Data to merge
 - `add_timestamp`: If True, updates the `updated` field
+- `using`: Optional [`Target`](#target), keyword-only. Defaults to the bound `use_target()` block, then the global config
 
 **Returns:** List with created/updated record
 
@@ -172,12 +191,15 @@ Delete a record by ID.
 
 ```python
 async def repo_delete(
-    record_id: Union[str, RecordID]
+    record_id: Union[str, RecordID],
+    *,
+    using: Optional[Target] = None,
 ) -> Any
 ```
 
 **Parameters:**
 - `record_id`: Full record ID (e.g., "user:123")
+- `using`: Optional [`Target`](#target), keyword-only. Defaults to the bound `use_target()` block, then the global config
 
 **Returns:** Deleted record or None
 
@@ -196,7 +218,9 @@ Bulk insert multiple records.
 async def repo_insert(
     table: str,
     data: List[Dict[str, Any]],
-    ignore_duplicates: bool = False
+    ignore_duplicates: bool = False,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]
 ```
 
@@ -204,6 +228,7 @@ async def repo_insert(
 - `table`: Table name
 - `data`: List of records
 - `ignore_duplicates`: If True, silently ignores duplicate key errors
+- `using`: Optional [`Target`](#target), keyword-only. Defaults to the bound `use_target()` block, then the global config
 
 **Returns:** List of created records
 
@@ -227,7 +252,9 @@ async def repo_relate(
     source: str,
     relationship: str,
     target: str,
-    data: Optional[Dict[str, Any]] = None
+    data: Optional[Dict[str, Any]] = None,
+    *,
+    using: Optional[Target] = None,
 ) -> List[Dict[str, Any]]
 ```
 
@@ -236,6 +263,7 @@ async def repo_relate(
 - `relationship`: Relationship type/table name
 - `target`: Target record ID
 - `data`: Optional relationship data
+- `using`: Optional [`Target`](#target), keyword-only. Defaults to the bound `use_target()` block, then the global config
 
 **Returns:** Created relationship record
 
@@ -292,12 +320,62 @@ rid = ensure_record_id(rid)  # Returns same RecordID
 
 ---
 
+## Targets
+
+See [Targets](targets.md) for the full guide.
+
+### Target
+
+```python
+Target(
+    namespace: str | None = None,
+    database: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    auth_scope: Literal["root", "namespace", "database"] | None = None,
+    token: str | None = None,
+)
+```
+
+Frozen dataclass. Fields left as `None` fall back to the bound `use_target()`
+block, then to the global config. Raises `ValueError` for a token combined with
+a username, a username without a password, or an unknown `auth_scope`.
+
+```python
+await repo_query("SELECT * FROM item", using=Target(namespace="tenant_a"))
+```
+
+### use_target
+
+```python
+use_target(target: Target | None = None, **fields)
+```
+
+Binds a target for a `with` / `async with` block. Takes a `Target` or its
+fields as keywords, not both. Nested blocks layer over outer ones.
+`use_target(None)` is a no-op.
+
+```python
+async with use_target(namespace="tenant_a", database="app"):
+    await repo_query("SELECT * FROM item")
+```
+
+### current_target
+
+```python
+current_target() -> Target | None
+```
+
+The target bound by the innermost active `use_target()` block.
+
+---
+
 ## Exceptions
 
 | Exception | Description | Retry |
 |-----------|-------------|-------|
 | `SurrealDBError` | Base for all exceptions | - |
-| `SurrealDBConnectionError` | Failed to connect to SurrealDB | No |
+| `SurrealDBConnectionError` | Failed to connect to SurrealDB, or an in-process engine asked for a second target while busy | No |
 | `SurrealDBMigrationError` | Migration failed to apply or rollback | No |
 | `SurrealDBQueryError` | Query error (syntax, etc) | No |
 | `SurrealDBTransientError` | Transient error (lock conflict) | Yes (3x) |

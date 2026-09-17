@@ -17,6 +17,13 @@ from surreal_basics.exceptions import SurrealDBQueryError
 TEST_TABLE = "test_table"
 
 
+def _async_slot():
+    """The persistent async connection for the current target, if open."""
+    from surreal_basics.connection import ConnectionManager
+
+    return ConnectionManager._async_slot_for()
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestRepoAsync:
@@ -237,12 +244,11 @@ class TestRepoAsync:
         reset the singleton and surface as transient, so the next call
         transparently reconnects."""
         from surreal_basics import get_async_connection
-        from surreal_basics.connection import ConnectionManager
         from surreal_basics.exceptions import SurrealDBTransientError
 
         # Prime the persistent WS singleton.
         await repo_create(TEST_TABLE, {"name": "seed"})
-        assert ConnectionManager._ws_async_connected
+        assert _async_slot() is not None
 
         # Simulate the 2.x symptom: an in-flight request raising KeyError(uuid).
         with pytest.raises(SurrealDBTransientError):
@@ -250,7 +256,7 @@ class TestRepoAsync:
                 raise KeyError("00000000-aaaa-bbbb-cccc-000000000000")
 
         # Singleton was dropped → the next operation rebuilds and succeeds.
-        assert not ConnectionManager._ws_async_connected
+        assert _async_slot() is None
         result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
         assert isinstance(result, list)
 
@@ -260,14 +266,13 @@ class TestRepoAsync:
         """An auth/IAM error on a warm socket (e.g. expired JWT) must reset the
         singleton and surface as transient, so the retry re-signs in."""
         from surreal_basics import get_async_connection
-        from surreal_basics.connection import ConnectionManager
         from surreal_basics.exceptions import (
             SurrealDBQueryError,
             SurrealDBTransientError,
         )
 
         await repo_create(TEST_TABLE, {"name": "seed"})
-        assert ConnectionManager._ws_async_connected
+        assert _async_slot() is not None
 
         # Simulate the expired-token symptom: a permission error over a still-open
         # socket (translate_errors maps the SDK error to SurrealDBQueryError).
@@ -277,7 +282,7 @@ class TestRepoAsync:
                     "IAM error: Not enough permissions to perform this action"
                 )
 
-        assert not ConnectionManager._ws_async_connected
+        assert _async_slot() is None
         result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
         assert isinstance(result, list)
 
@@ -290,11 +295,10 @@ class TestRepoAsync:
         from surrealdb.errors import SurrealError
 
         from surreal_basics import get_async_connection
-        from surreal_basics.connection import ConnectionManager
         from surreal_basics.exceptions import SurrealDBTransientError
 
         await repo_create(TEST_TABLE, {"name": "seed"})
-        assert ConnectionManager._ws_async_connected
+        assert _async_slot() is not None
 
         with pytest.raises(SurrealDBTransientError):
             async with get_async_connection():
@@ -302,7 +306,7 @@ class TestRepoAsync:
                     "IAM error: Not enough permissions to perform this action"
                 )
 
-        assert not ConnectionManager._ws_async_connected
+        assert _async_slot() is None
         result = await repo_query(f"SELECT * FROM {TEST_TABLE}")
         assert isinstance(result, list)
 
@@ -314,16 +318,15 @@ class TestRepoAsync:
         import time
 
         from surreal_basics import get_async_connection
-        from surreal_basics.connection import ConnectionManager
 
         await repo_create(TEST_TABLE, {"name": "seed"})
-        conn_before = id(ConnectionManager._ws_async_connection)
+        conn_before = id(_async_slot().conn)
 
         # Pretend the cached token just lapsed; the next checkout must refresh.
-        ConnectionManager._ws_async_token_exp = time.time() - 1
+        _async_slot().token_exp = time.time() - 1
         async with get_async_connection() as db:
             result = await db.query(f"SELECT * FROM {TEST_TABLE}")
 
         assert isinstance(result, list)
         # Refreshed in place on the same warm socket (no full rebuild needed).
-        assert id(ConnectionManager._ws_async_connection) == conn_before
+        assert id(_async_slot().conn) == conn_before

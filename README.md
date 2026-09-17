@@ -11,7 +11,7 @@ Simple and transparent SurrealDB connection abstraction for Python.
 When working with SurrealDB, you need to manage connections, authentication, and namespaces for each operation. `surreal-basics` abstracts this complexity, offering:
 
 - **Automatic connection**: Configure once, use anywhere
-- **Optimized performance**: Persistent (singleton) connections for WebSocket and HTTP
+- **Optimized performance**: Persistent connections for WebSocket and HTTP, one per target
 - **Smart retry**: Automatic handling of transient errors (lock conflicts)
 - **Consistent API**: `repo_*` functions for async and `repo_*_sync` for sync
 
@@ -95,6 +95,23 @@ surreal_basics.init(
 surreal_basics.mode = "http"
 ```
 
+### Several namespaces or users
+
+```python
+from surreal_basics import Target, repo_query, use_target
+
+# One call
+await repo_query("SELECT * FROM item", using=Target(namespace="tenant_a"))
+
+# A block: concurrent requests each keep their own target
+tenant = "tenant_b"  # e.g. resolved from the incoming request
+async with use_target(namespace=tenant, database="app"):
+    await repo_query("SELECT * FROM item")
+```
+
+Targets can also carry a scoped user or an access token. See
+[docs/targets.md](docs/targets.md).
+
 ## Performance
 
 Benchmarks with 1000 operations each (localhost):
@@ -122,6 +139,9 @@ Benchmarks with 1000 operations each (localhost):
 | `repo_delete(record_id)` | Delete record |
 | `repo_insert(table, data_list)` | Bulk insert |
 | `repo_relate(source, rel, target)` | Create relationship |
+
+Every function takes a keyword-only `using=Target(...)` to run against another
+namespace, database or user.
 
 ### Sync Functions
 

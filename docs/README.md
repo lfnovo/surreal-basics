@@ -5,6 +5,7 @@
 - [Configuration](configuration.md) - Environment variables, init() and connection modes
 - [API Reference](api-reference.md) - Complete documentation of all functions
 - [Migrations](migrations.md) - Schema migration system
+- [Targets](targets.md) - Several namespaces, databases or users from one process
 
 ## Main Features
 
@@ -28,6 +29,12 @@
 - `repo_query` / `repo_query_sync` - Custom SurrealQL queries
 - `repo_insert` / `repo_insert_sync` - Bulk insert
 - `repo_relate` / `repo_relate_sync` - Create relationships between records
+
+### Targets
+
+- `Target` - Namespace, database and credential for one call (`using=`)
+- `use_target()` - Bind a target for a block, per task/thread
+- One persistent connection per target, idle ones capped by `ConnectionManager.max_connections`
 
 ### Migrations
 

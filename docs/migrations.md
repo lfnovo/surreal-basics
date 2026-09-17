@@ -214,8 +214,8 @@ for tenant in tenants:
     MigrationRunner("./migrations", using=Target(namespace=tenant)).run_up()
 ```
 
-With a server (WebSocket or HTTP), the async runner can migrate them
-concurrently, each over its own connection:
+With WebSocket, or HTTP with `persistent=True`, the async runner can migrate
+them concurrently, each over its own connection:
 
 ```python
 import asyncio

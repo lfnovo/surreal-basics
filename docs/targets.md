@@ -115,15 +115,20 @@ or not. Memory and embedded modes are covered [below](#memory-and-embedded-modes
 
 Idle connections are capped at `ConnectionManager.max_connections` (32 by
 default). Past that, the least recently used idle connection is closed, on the
-event loop that owns it. A connection that a query is using is never closed
-under it:
+event loop that owns it. A connection is never closed while a query is
+using it:
 
 - eviction skips it, so under load the limit can be exceeded briefly;
 - when it has to be replaced (a rejected or unrefreshable token), it leaves the
   pool at once, so new operations get a fresh connection, and is closed when
   its last user finishes.
 
-`reset_connections()` is the exception: it closes everything immediately.
+Resetting is the exception. `await reset_connections_async()` closes every
+connection immediately: the ones on the current event loop directly, and those
+owned by another running loop on that loop. `reset_connections()` is the
+synchronous reset: it closes the sync connections, but only forgets the async
+ones, since closing them needs their event loop. Call the async variant from
+async code.
 
 ```python
 from surreal_basics import ConnectionManager

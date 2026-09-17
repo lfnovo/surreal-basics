@@ -196,7 +196,7 @@ operation; memory and embedded modes share one in-process engine.
 
 Idle connections beyond `ConnectionManager.max_connections` (default 32) are
 closed, least recently used first, on the event loop that owns them.
-Connections in use are never closed under a query:
+A connection is never closed while a query is using it:
 
 ```python
 from surreal_basics import ConnectionManager
